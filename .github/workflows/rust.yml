@@ -15,8 +15,13 @@ jobs:
       "runs-on": "ubuntu-latest",
       "steps": [
         {
-          "uses": "actions/checkout@v3",
-          "name": "Checkout"
+          "name": "Checkout",
+          "uses": "actions/checkout@v3"
+        },
+        {
+          "name": "Checkout submodules",
+          "shell": "bash",
+          "run": "auth_header=\"$(git config --local --get http.https://github.com/.extraheader)\" git submodule sync --recursive && git -c \"http.extraheader=$auth_header\" -c protocol.version=2 submodule update --init --force --recursive --depth=1"
         },
         {
           "name": "Install Nix",
@@ -35,8 +40,12 @@ jobs:
       "runs-on": "ubuntu-latest",
       "steps": [
         {
-          "uses": "actions/checkout@v3",
-          "name": "Checkout"
+          "name": "Checkout",
+          "uses": "actions/checkout@v3"
+        },
+        {
+          "name": "Checkout submodules",
+          "run": "auth_header=\"$(git config --local --get http.https://github.com/.extraheader)\" git submodule sync --recursive && git -c \"http.extraheader=$auth_header\" -c protocol.version=2 submodule update --init --force --recursive --depth=1"
         },
         {
           "name": "Install Nix",
@@ -144,13 +153,17 @@ jobs:
           "name": "Checkout"
         },
         {
+          "name": "Checkout submodules",
+          "run": "auth_header=\"$(git config --local --get http.https://github.com/.extraheader)\" git submodule sync --recursive && git -c \"http.extraheader=$auth_header\" -c protocol.version=2 submodule update --init --force --recursive --depth=1"
+        },
+        {
           "name": "Install Nix",
           "uses": "cachix/install-nix-action@v17",
           "with": { "extra-nix-config": "access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}" }
         },
         {
           "name": "Run app",
-          "run": "nix run"
+          "run": "nix run . -- computer_enhance/perfaware/part1/listing_0038_many_register_mov computer_enhance/perfaware/part1/listing_0038_many_register_mov.asm"
         }
       ]
     }
