@@ -141,6 +141,121 @@ impl Display for Instruction {
 }
 
 impl Instruction {
+    fn push_effective_address(address: &EffectiveAddress, reg: u8, result: &mut Vec<u8>) {
+        match address {
+            EffectiveAddress::Sum(WithOffset::Basic((base, source_dest))) => {
+                let mode = 0u8;
+                let rm = match base {
+                    Base::Bx => 0u8,
+                    Base::Bp => 2,
+                } + match source_dest {
+                    SourceDest::Source => 0,
+                    SourceDest::Dest => 1,
+                };
+                result.push(mode + reg * 8 + rm);
+            }
+            EffectiveAddress::Sum(WithOffset::WithU8((base, source_dest), offset)) => {
+                result.reserve_exact(1);
+                let mode = 1u8;
+                let rm = match base {
+                    Base::Bx => 0u8,
+                    Base::Bp => 2,
+                } + match source_dest {
+                    SourceDest::Source => 0,
+                    SourceDest::Dest => 1,
+                };
+                result.push(mode + reg * 8 + rm);
+                result.push(*offset);
+            }
+            EffectiveAddress::Sum(WithOffset::WithU16((base, source_dest), offset)) => {
+                result.reserve_exact(2);
+                let mode = 2u8;
+                let rm = match base {
+                    Base::Bx => 0u8,
+                    Base::Bp => 2,
+                } + match source_dest {
+                    SourceDest::Source => 0,
+                    SourceDest::Dest => 1,
+                };
+                result.push(mode + reg * 8 + rm);
+                result.push((offset % 256) as u8);
+                result.push((offset / 256) as u8);
+            }
+            EffectiveAddress::SpecifiedIn(WithOffset::Basic(source_dest)) => {
+                let mode = 0u8;
+                let rm = match source_dest {
+                    SourceDest::Source => 4u8,
+                    SourceDest::Dest => 5,
+                };
+                result.push(mode + reg * 8 + rm);
+            }
+            EffectiveAddress::SpecifiedIn(WithOffset::WithU8(source_dest, offset)) => {
+                result.reserve_exact(1);
+                let mode = 1u8;
+                let rm = match source_dest {
+                    SourceDest::Source => 4u8,
+                    SourceDest::Dest => 5,
+                };
+                result.push(mode + reg * 8 + rm);
+                result.push(*offset);
+            }
+            EffectiveAddress::SpecifiedIn(WithOffset::WithU16(source_dest, offset)) => {
+                result.reserve_exact(2);
+                let mode = 2u8;
+                let rm = match source_dest {
+                    SourceDest::Source => 4u8,
+                    SourceDest::Dest => 5,
+                };
+                result.push(mode + reg * 8 + rm);
+                result.push((offset % 256) as u8);
+                result.push((offset / 256) as u8);
+            }
+            EffectiveAddress::Bx(WithOffset::Basic(())) => {
+                let mode = 0u8;
+                let rm = 7u8;
+                result.push(mode + reg * 8 + rm);
+            }
+            EffectiveAddress::Bx(WithOffset::WithU8((), offset)) => {
+                result.reserve_exact(1);
+                let mode = 1u8;
+                let rm = 7u8;
+                result.push(mode + reg * 8 + rm);
+                result.push(*offset);
+            }
+            EffectiveAddress::Bx(WithOffset::WithU16((), offset)) => {
+                result.reserve_exact(2);
+                let mode = 2u8;
+                let rm = 7u8;
+                result.push(mode + reg * 8 + rm);
+                result.push((offset % 256) as u8);
+                result.push((offset / 256) as u8);
+            }
+            EffectiveAddress::Direct(address) => {
+                result.reserve_exact(2);
+                let mode = 0u8;
+                let rm = 6u8;
+                result.push(mode + reg * 8 + rm);
+                result.push((address % 256) as u8);
+                result.push((address / 256) as u8);
+            }
+            EffectiveAddress::BasePointer(offset) => {
+                result.reserve_exact(1);
+                let mode = 1u8;
+                let rm = 6u8;
+                result.push(mode + reg * 8 + rm);
+                result.push(*offset);
+            }
+            EffectiveAddress::BasePointerWide(offset) => {
+                result.reserve_exact(2);
+                let mode = 2u8;
+                let rm = 6u8;
+                result.push(mode + reg * 8 + rm);
+                result.push((offset % 256) as u8);
+                result.push((offset / 256) as u8);
+            }
+        }
+    }
+
     fn to_bytes(&self) -> Vec<u8> {
         match self {
             Instruction::RegRegMove(mov) => {
@@ -218,6 +333,33 @@ impl Instruction {
                         panic!("tried to move narrow into wide")
                     }
                 }
+
+                result
+            }
+
+            Instruction::RegMemMove(mov) => {
+                let mut result = Vec::<u8>::with_capacity(2);
+
+                let instruction1 = 0b10001000u8;
+                // Source is the register.
+                let d = 0;
+                let (source_reg, is_wide) = mov.source.to_id();
+                result.push(instruction1 + 2 * d + if is_wide { 1 } else { 0 });
+
+                Self::push_effective_address(&mov.dest, source_reg, &mut result);
+
+                result
+            }
+            Instruction::MemRegMove(mov) => {
+                let mut result = Vec::with_capacity(2);
+
+                let instruction1 = 0b10001000u8;
+                // Source is the effective address, so REG is the dest.
+                let d: u8 = 1;
+                let (dest_reg, is_wide) = mov.dest.to_id();
+                result.push(instruction1 + 2 * d + if is_wide { 1 } else { 0 });
+
+                Self::push_effective_address(&mov.source, dest_reg, &mut result);
 
                 result
             }
