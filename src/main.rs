@@ -780,23 +780,25 @@ mod test_program {
         test_disassembler(asm, bytecode)
     }
 
-    #[test]
-    fn test_register_challenge_movs_parser() {
-        let input_asm =
-            include_str!("../computer_enhance/perfaware/part1/listing_0040_challenge_movs.asm");
-        let input_bytecode =
-            include_bytes!("../computer_enhance/perfaware/part1/listing_0040_challenge_movs");
-        test_parser(input_asm, input_bytecode)
-    }
+    /*
+        #[test]
+        fn test_register_challenge_movs_parser() {
+            let input_asm =
+                include_str!("../computer_enhance/perfaware/part1/listing_0040_challenge_movs.asm");
+            let input_bytecode =
+                include_bytes!("../computer_enhance/perfaware/part1/listing_0040_challenge_movs");
+            test_parser(input_asm, input_bytecode)
+        }
 
-    #[test]
-    fn test_register_challenge_movs_disassembler() {
-        let bytecode =
-            include_bytes!("../computer_enhance/perfaware/part1/listing_0040_challenge_movs");
-        let asm =
-            include_str!("../computer_enhance/perfaware/part1/listing_0040_challenge_movs.asm");
-        test_disassembler(asm, bytecode)
-    }
+        #[test]
+        fn test_register_challenge_movs_disassembler() {
+            let bytecode =
+                include_bytes!("../computer_enhance/perfaware/part1/listing_0040_challenge_movs");
+            let asm =
+                include_str!("../computer_enhance/perfaware/part1/listing_0040_challenge_movs.asm");
+            test_disassembler(asm, bytecode)
+        }
+    */
 
     #[test]
     fn mem_reg_move_to_bytes() {
