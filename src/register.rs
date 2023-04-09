@@ -17,6 +17,16 @@ impl GeneralRegister {
             GeneralRegister::D => 0b10,
         }
     }
+
+    pub fn of_id(id: u8) -> GeneralRegister {
+        match id {
+            0 => GeneralRegister::A,
+            1 => GeneralRegister::C,
+            2 => GeneralRegister::D,
+            3 => GeneralRegister::B,
+            _ => panic!("Not a register: {}", id),
+        }
+    }
 }
 
 impl Display for GeneralRegister {
@@ -46,6 +56,16 @@ impl SpecialRegister {
             SpecialRegister::BasePointer => 1,
             SpecialRegister::SourceIndex => 2,
             SpecialRegister::DestIndex => 3,
+        }
+    }
+
+    pub fn of_id(id: u8) -> SpecialRegister {
+        match id {
+            4 => SpecialRegister::StackPointer,
+            5 => SpecialRegister::BasePointer,
+            6 => SpecialRegister::SourceIndex,
+            7 => SpecialRegister::DestIndex,
+            _ => panic!("Not a special register ID: {}", id),
         }
     }
 }
@@ -94,6 +114,28 @@ impl Display for Register {
         match self {
             Register::General(r, subset) => f.write_fmt(format_args!("{}{}", r, subset)),
             Register::Special(special) => f.write_fmt(format_args!("{}", special)),
+        }
+    }
+}
+
+impl Register {
+    pub fn of_id(id: u8, is_wide: bool) -> Register {
+        if is_wide {
+            if id >= 4 {
+                Register::Special(SpecialRegister::of_id(id))
+            } else {
+                Register::General(GeneralRegister::of_id(id), RegisterSubset::All)
+            }
+        } else {
+            let subset = if id >= 4 {
+                ByteRegisterSubset::High
+            } else {
+                ByteRegisterSubset::Low
+            };
+            Register::General(
+                GeneralRegister::of_id(id % 4),
+                RegisterSubset::Subset(subset),
+            )
         }
     }
 }
