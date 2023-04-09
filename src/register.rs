@@ -1,6 +1,6 @@
 use std::fmt::{Display, Write};
 
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Debug)]
 pub enum GeneralRegister {
     A,
     B,
@@ -40,7 +40,7 @@ impl Display for GeneralRegister {
     }
 }
 
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Debug)]
 pub enum SpecialRegister {
     StackPointer,
     BasePointer,
@@ -81,13 +81,13 @@ impl Display for SpecialRegister {
     }
 }
 
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Debug)]
 pub enum ByteRegisterSubset {
     High,
     Low,
 }
 
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Debug)]
 pub enum RegisterSubset {
     All,
     Subset(ByteRegisterSubset),
@@ -103,7 +103,7 @@ impl Display for RegisterSubset {
     }
 }
 
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Debug)]
 pub enum Register {
     General(GeneralRegister, RegisterSubset),
     Special(SpecialRegister),

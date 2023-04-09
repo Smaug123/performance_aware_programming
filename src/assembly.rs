@@ -81,13 +81,31 @@ fn special_register(input: &str) -> IResult<&str, SpecialRegister> {
     ))(input)
 }
 
-fn register(input: &str) -> IResult<&str, Register> {
+fn wide_register(input: &str) -> IResult<&str, Register> {
     alt((
-        map_res(tuple((general_register, register_subset)), |(reg, sub)| {
-            Ok::<_, ()>(Register::General(reg, sub))
-        }),
+        map_res(
+            tuple((general_register, register_subset)),
+            |(reg, sub)| match sub {
+                RegisterSubset::Subset(_) => Err(()),
+                RegisterSubset::All => Ok::<_, ()>(Register::General(reg, sub)),
+            },
+        ),
         map_res(special_register, |r| Ok::<_, ()>(Register::Special(r))),
     ))(input)
+}
+
+fn byte_register(input: &str) -> IResult<&str, Register> {
+    map_res(
+        tuple((general_register, register_subset)),
+        |(reg, sub)| match sub {
+            RegisterSubset::Subset(_) => Ok::<_, ()>(Register::General(reg, sub)),
+            RegisterSubset::All => Err(()),
+        },
+    )(input)
+}
+
+fn register(input: &str) -> IResult<&str, Register> {
+    alt((byte_register, wide_register))(input)
 }
 
 fn reg_reg_move_instruction(input: &str) -> IResult<&str, RegRegMove> {
@@ -293,15 +311,15 @@ fn immediate_to_register_instruction(input: &str) -> IResult<&str, ImmediateToRe
     map_res(
         preceded(
             tag("mov "),
-            tuple((
-                terminated(register, argument_sep),
-                terminated(
-                    alt((
-                        map_res(literal_u8, |x| Ok::<_, ()>(Ok(x))),
-                        map_res(literal_u16, |x| Ok::<_, ()>(Err(x))),
-                    )),
-                    line_ending,
-                ),
+            alt((
+                tuple((
+                    terminated(wide_register, argument_sep),
+                    terminated(map_res(literal_u16, |x| Ok::<_, ()>(Err(x))), line_ending),
+                )),
+                tuple((
+                    terminated(byte_register, argument_sep),
+                    terminated(map_res(literal_u8, |x| Ok::<_, ()>(Ok(x))), line_ending),
+                )),
             )),
         ),
         |(register, contents)| {

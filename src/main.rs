@@ -10,13 +10,13 @@ use std::{
 use clap::Parser;
 use register::{ByteRegisterSubset, Register, RegisterSubset};
 
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Debug)]
 pub struct RegRegMove {
     source: Register,
     dest: Register,
 }
 
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Debug)]
 pub enum SourceDest {
     Source,
     Dest,
@@ -31,7 +31,7 @@ impl Display for SourceDest {
     }
 }
 
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Debug)]
 pub enum Base {
     Bx,
     Bp,
@@ -46,7 +46,7 @@ impl Display for Base {
     }
 }
 
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Debug)]
 pub enum WithOffset<T> {
     Basic(T),
     WithU8(T, u8),
@@ -66,7 +66,7 @@ where
     }
 }
 
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Debug)]
 pub enum EffectiveAddress {
     Sum(WithOffset<(Base, SourceDest)>),
     SpecifiedIn(WithOffset<SourceDest>),
@@ -105,29 +105,33 @@ impl Display for EffectiveAddress {
     }
 }
 
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Debug)]
 pub struct RegMemMove {
     source: Register,
     dest: EffectiveAddress,
 }
 
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Debug)]
 pub struct MemRegMove {
     source: EffectiveAddress,
     dest: Register,
 }
 
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Debug)]
 pub enum ImmediateToRegister {
     Byte(Register, u8),
     Wide(Register, u16),
 }
 
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Debug)]
 pub enum Instruction {
+    /// Move a value from one register to another
     RegRegMove(RegRegMove),
+    /// Store a value from a register into memory
     RegMemMove(RegMemMove),
+    /// Load a value from memory into a register
     MemRegMove(MemRegMove),
+    /// Load a literal value into a register
     ImmediateToRegister(ImmediateToRegister),
 }
 
@@ -165,7 +169,7 @@ impl Instruction {
                     SourceDest::Source => 0,
                     SourceDest::Dest => 1,
                 };
-                result.push(mode + reg * 8 + rm);
+                result.push(mode * 64 + reg * 8 + rm);
             }
             EffectiveAddress::Sum(WithOffset::WithU8((base, source_dest), offset)) => {
                 result.reserve_exact(1);
@@ -177,7 +181,7 @@ impl Instruction {
                     SourceDest::Source => 0,
                     SourceDest::Dest => 1,
                 };
-                result.push(mode + reg * 8 + rm);
+                result.push(mode * 64 + reg * 8 + rm);
                 result.push(*offset);
             }
             EffectiveAddress::Sum(WithOffset::WithU16((base, source_dest), offset)) => {
@@ -190,7 +194,7 @@ impl Instruction {
                     SourceDest::Source => 0,
                     SourceDest::Dest => 1,
                 };
-                result.push(mode + reg * 8 + rm);
+                result.push(mode * 64 + reg * 8 + rm);
                 result.push((offset % 256) as u8);
                 result.push((offset / 256) as u8);
             }
@@ -200,7 +204,7 @@ impl Instruction {
                     SourceDest::Source => 4u8,
                     SourceDest::Dest => 5,
                 };
-                result.push(mode + reg * 8 + rm);
+                result.push(mode * 64 + reg * 8 + rm);
             }
             EffectiveAddress::SpecifiedIn(WithOffset::WithU8(source_dest, offset)) => {
                 result.reserve_exact(1);
@@ -209,7 +213,7 @@ impl Instruction {
                     SourceDest::Source => 4u8,
                     SourceDest::Dest => 5,
                 };
-                result.push(mode + reg * 8 + rm);
+                result.push(mode * 64 + reg * 8 + rm);
                 result.push(*offset);
             }
             EffectiveAddress::SpecifiedIn(WithOffset::WithU16(source_dest, offset)) => {
@@ -219,27 +223,27 @@ impl Instruction {
                     SourceDest::Source => 4u8,
                     SourceDest::Dest => 5,
                 };
-                result.push(mode + reg * 8 + rm);
+                result.push(mode * 64 + reg * 8 + rm);
                 result.push((offset % 256) as u8);
                 result.push((offset / 256) as u8);
             }
             EffectiveAddress::Bx(WithOffset::Basic(())) => {
                 let mode = 0u8;
                 let rm = 7u8;
-                result.push(mode + reg * 8 + rm);
+                result.push(mode * 64 + reg * 8 + rm);
             }
             EffectiveAddress::Bx(WithOffset::WithU8((), offset)) => {
                 result.reserve_exact(1);
                 let mode = 1u8;
                 let rm = 7u8;
-                result.push(mode + reg * 8 + rm);
+                result.push(mode * 64 + reg * 8 + rm);
                 result.push(*offset);
             }
             EffectiveAddress::Bx(WithOffset::WithU16((), offset)) => {
                 result.reserve_exact(2);
                 let mode = 2u8;
                 let rm = 7u8;
-                result.push(mode + reg * 8 + rm);
+                result.push(mode * 64 + reg * 8 + rm);
                 result.push((offset % 256) as u8);
                 result.push((offset / 256) as u8);
             }
@@ -247,7 +251,7 @@ impl Instruction {
                 result.reserve_exact(2);
                 let mode = 0u8;
                 let rm = 6u8;
-                result.push(mode + reg * 8 + rm);
+                result.push(mode * 64 + reg * 8 + rm);
                 result.push((address % 256) as u8);
                 result.push((address / 256) as u8);
             }
@@ -255,14 +259,14 @@ impl Instruction {
                 result.reserve_exact(1);
                 let mode = 1u8;
                 let rm = 6u8;
-                result.push(mode + reg * 8 + rm);
+                result.push(mode * 64 + reg * 8 + rm);
                 result.push(*offset);
             }
             EffectiveAddress::BasePointerWide(offset) => {
                 result.reserve_exact(2);
                 let mode = 2u8;
                 let rm = 6u8;
-                result.push(mode + reg * 8 + rm);
+                result.push(mode * 64 + reg * 8 + rm);
                 result.push((offset % 256) as u8);
                 result.push((offset / 256) as u8);
             }
@@ -616,7 +620,6 @@ impl Program<Vec<Instruction>> {
         let mut output = Vec::new();
 
         while let Some(i) = Instruction::consume(&mut bytes) {
-            println!("{}", i);
             output.push(i);
         }
 
@@ -676,7 +679,10 @@ fn main() {
 
 #[cfg(test)]
 mod test_program {
-    use crate::Program;
+    use crate::{
+        register::{GeneralRegister, Register, RegisterSubset},
+        Instruction, MemRegMove, Program,
+    };
 
     use super::assembly::program;
 
@@ -687,6 +693,7 @@ mod test_program {
         let (remaining, parsed) = program(input_asm).unwrap();
         assert_eq!(remaining, "");
         assert_eq!(parsed.bits, 16);
+
         for (i, (actual, expected)) in parsed
             .to_bytes()
             .iter()
@@ -758,7 +765,7 @@ mod test_program {
     }
 
     #[test]
-    fn test_register_register_more_mov_parser() {
+    fn test_register_more_mov_parser() {
         let input_asm =
             include_str!("../computer_enhance/perfaware/part1/listing_0039_more_movs.asm");
         let input_bytecode =
@@ -767,9 +774,36 @@ mod test_program {
     }
 
     #[test]
-    fn test_register_register_more_mov_disassembler() {
+    fn test_register_more_mov_disassembler() {
         let bytecode = include_bytes!("../computer_enhance/perfaware/part1/listing_0039_more_movs");
         let asm = include_str!("../computer_enhance/perfaware/part1/listing_0039_more_movs.asm");
         test_disassembler(asm, bytecode)
+    }
+
+    #[test]
+    fn test_register_challenge_movs_parser() {
+        let input_asm =
+            include_str!("../computer_enhance/perfaware/part1/listing_0040_challenge_movs.asm");
+        let input_bytecode =
+            include_bytes!("../computer_enhance/perfaware/part1/listing_0040_challenge_movs");
+        test_parser(input_asm, input_bytecode)
+    }
+
+    #[test]
+    fn test_register_challenge_movs_disassembler() {
+        let bytecode =
+            include_bytes!("../computer_enhance/perfaware/part1/listing_0040_challenge_movs");
+        let asm =
+            include_str!("../computer_enhance/perfaware/part1/listing_0040_challenge_movs.asm");
+        test_disassembler(asm, bytecode)
+    }
+
+    #[test]
+    fn mem_reg_move_to_bytes() {
+        let i = Instruction::MemRegMove(MemRegMove {
+            source: crate::EffectiveAddress::BasePointer(0),
+            dest: Register::General(GeneralRegister::D, RegisterSubset::All),
+        });
+        assert_eq!(i.to_bytes(), vec![139, 86, 0]);
     }
 }
