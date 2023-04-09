@@ -142,16 +142,20 @@ impl Register {
     // Returns true if the result is wide.
     pub fn to_id(self: &Register) -> (u8, bool) {
         match self {
-            Register::Special(s) => {
-                (s.to_id(), true)
-            }
-            Register::General(reg, sub) => {
-                match sub {
-                    RegisterSubset::All => (reg.to_id(), true),
-                    RegisterSubset::Subset(ByteRegisterSubset::High) => (4 + reg.to_id(), false),
-                    RegisterSubset::Subset(ByteRegisterSubset::Low) => (reg.to_id(), false),
-                }
-            }
+            Register::Special(s) => (s.to_id(), true),
+            Register::General(reg, sub) => match sub {
+                RegisterSubset::All => (reg.to_id(), true),
+                RegisterSubset::Subset(ByteRegisterSubset::High) => (4 + reg.to_id(), false),
+                RegisterSubset::Subset(ByteRegisterSubset::Low) => (reg.to_id(), false),
+            },
+        }
+    }
+
+    pub fn is_wide(self: &Register) -> bool {
+        match self {
+            Register::Special(_) => true,
+            Register::General(_, RegisterSubset::All) => true,
+            Register::General(_, RegisterSubset::Subset(_)) => false,
         }
     }
 }

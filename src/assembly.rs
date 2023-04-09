@@ -10,8 +10,8 @@ use nom::{
 
 use crate::{
     register::{ByteRegisterSubset, GeneralRegister, Register, RegisterSubset, SpecialRegister},
-    Base, EffectiveAddress, Instruction, MemRegMove, Program, RegMemMove, RegRegMove, SourceDest,
-    WithOffset,
+    Base, EffectiveAddress, ImmediateToRegister, Instruction, MemRegMove, Program, RegMemMove,
+    RegRegMove, SourceDest, WithOffset,
 };
 
 fn comment(input: &str) -> IResult<&str, &str> {
@@ -25,6 +25,15 @@ where
     F: FnMut(&'a str) -> IResult<&'a str, O, E>,
 {
     delimited(multispace0, inner, multispace0)
+}
+
+fn bracketed<'a, F, O, E: nom::error::ParseError<&'a str>>(
+    inner: F,
+) -> impl FnMut(&'a str) -> IResult<&'a str, O, E>
+where
+    F: FnMut(&'a str) -> IResult<&'a str, O, E>,
+{
+    preceded(char('['), terminated(inner, char(']')))
 }
 
 fn argument_sep(input: &str) -> IResult<&str, ()> {
@@ -92,10 +101,7 @@ fn reg_reg_move_instruction(input: &str) -> IResult<&str, RegRegMove> {
 }
 
 fn direct_offset(input: &str) -> IResult<&str, u16> {
-    preceded(
-        char('['),
-        terminated(map_res(digit1, str::parse), char(']')),
-    )(input)
+    bracketed(map_res(digit1, str::parse))(input)
 }
 
 fn base(input: &str) -> IResult<&str, Base> {
@@ -107,24 +113,52 @@ fn base(input: &str) -> IResult<&str, Base> {
 
 fn source_dest(input: &str) -> IResult<&str, SourceDest> {
     alt((
-        map_res(char('s'), |_| Ok::<_, ()>(SourceDest::Source)),
-        map_res(char('d'), |_| Ok::<_, ()>(SourceDest::Dest)),
+        map_res(tag("si"), |_| Ok::<_, ()>(SourceDest::Source)),
+        map_res(tag("di"), |_| Ok::<_, ()>(SourceDest::Dest)),
     ))(input)
 }
 
 fn absolute_u8(input: &str) -> IResult<&str, u8> {
-    map_res(digit1, |digits| str::parse::<u8>(digits))(input)
+    map_res(
+        alt((digit1, preceded(tag("byte "), digit1))),
+        str::parse::<u8>,
+    )(input)
 }
 
 fn absolute_u16(input: &str) -> IResult<&str, u16> {
-    map_res(digit1, |digits| str::parse::<u16>(digits))(input)
+    map_res(
+        alt((digit1, preceded(tag("word "), digit1))),
+        str::parse::<u16>,
+    )(input)
+}
+
+fn negative_u8(input: &str) -> IResult<&str, u8> {
+    map_res(
+        preceded(char('-'), alt((digit1, preceded(tag("byte "), digit1)))),
+        |x| str::parse::<u8>(x).map(|x| 255 - x + 1),
+    )(input)
+}
+
+fn negative_u16(input: &str) -> IResult<&str, u16> {
+    map_res(
+        preceded(char('-'), alt((digit1, preceded(tag("word "), digit1)))),
+        |x| str::parse::<u16>(x).map(|x| 65535 - x + 1),
+    )(input)
+}
+
+fn literal_u8(input: &str) -> IResult<&str, u8> {
+    alt((absolute_u8, negative_u8))(input)
+}
+
+fn literal_u16(input: &str) -> IResult<&str, u16> {
+    alt((absolute_u16, negative_u16))(input)
 }
 
 fn effective_address(input: &str) -> IResult<&str, EffectiveAddress> {
     alt((
         // Sum, no offset
         map_res(
-            tuple((base, ws(char('+')), source_dest)),
+            bracketed(tuple((base, ws(char('+')), source_dest))),
             |(base, _, source_dest)| {
                 Ok::<_, ()>(EffectiveAddress::Sum(WithOffset::Basic((
                     base,
@@ -134,7 +168,13 @@ fn effective_address(input: &str) -> IResult<&str, EffectiveAddress> {
         ),
         // Sum, with positive offset
         map_res(
-            tuple((base, ws(char('+')), source_dest, ws(char('+')), absolute_u8)),
+            bracketed(tuple((
+                base,
+                ws(char('+')),
+                source_dest,
+                ws(char('+')),
+                literal_u8,
+            ))),
             |(base, _, source_dest, _, offset)| {
                 Ok::<_, ()>(EffectiveAddress::Sum(WithOffset::WithU8(
                     (base, source_dest),
@@ -143,13 +183,13 @@ fn effective_address(input: &str) -> IResult<&str, EffectiveAddress> {
             },
         ),
         map_res(
-            tuple((
+            bracketed(tuple((
                 base,
                 ws(char('+')),
                 source_dest,
                 ws(char('+')),
-                absolute_u16,
-            )),
+                literal_u16,
+            ))),
             |(base, _, source_dest, _, offset)| {
                 Ok::<_, ()>(EffectiveAddress::Sum(WithOffset::WithU16(
                     (base, source_dest),
@@ -164,7 +204,7 @@ fn effective_address(input: &str) -> IResult<&str, EffectiveAddress> {
             )))
         }),
         map_res(
-            tuple((source_dest, ws(char('+')), absolute_u8)),
+            bracketed(tuple((source_dest, ws(char('+')), absolute_u8))),
             |(source_dest, _, offset)| {
                 Ok::<_, ()>(EffectiveAddress::SpecifiedIn(WithOffset::WithU8(
                     source_dest,
@@ -173,7 +213,7 @@ fn effective_address(input: &str) -> IResult<&str, EffectiveAddress> {
             },
         ),
         map_res(
-            tuple((source_dest, ws(char('+')), absolute_u16)),
+            bracketed(tuple((source_dest, ws(char('+')), absolute_u16))),
             |(source_dest, _, offset)| {
                 Ok::<_, ()>(EffectiveAddress::SpecifiedIn(WithOffset::WithU16(
                     source_dest,
@@ -186,11 +226,11 @@ fn effective_address(input: &str) -> IResult<&str, EffectiveAddress> {
             Ok::<_, ()>(EffectiveAddress::Bx(WithOffset::Basic(())))
         }),
         map_res(
-            tuple((tag("bx"), ws(char('+')), absolute_u8)),
+            bracketed(tuple((tag("bx"), ws(char('+')), absolute_u8))),
             |(_, _, offset)| Ok::<_, ()>(EffectiveAddress::Bx(WithOffset::WithU8((), offset))),
         ),
         map_res(
-            tuple((tag("bx"), ws(char('+')), absolute_u16)),
+            bracketed(tuple((tag("bx"), ws(char('+')), absolute_u16))),
             |(_, _, offset)| Ok::<_, ()>(EffectiveAddress::Bx(WithOffset::WithU16((), offset))),
         ),
         // Direct memory address
@@ -199,13 +239,17 @@ fn effective_address(input: &str) -> IResult<&str, EffectiveAddress> {
         }),
         // Offset from base pointer
         map_res(
-            tuple((tag("bp"), ws(char('+')), absolute_u8)),
+            bracketed(tuple((tag("bp"), ws(char('+')), absolute_u8))),
             |(_, _, offset)| Ok::<_, ()>(EffectiveAddress::BasePointer(offset)),
         ),
         map_res(
-            tuple((tag("bp"), ws(char('+')), absolute_u16)),
+            bracketed(tuple((tag("bp"), ws(char('+')), absolute_u16))),
             |(_, _, offset)| Ok::<_, ()>(EffectiveAddress::BasePointerWide(offset)),
         ),
+        // Specific support for [bp], which can't be represented as a simple instruction
+        map_res(bracketed(tag("bp")), |_| {
+            Ok::<_, ()>(EffectiveAddress::BasePointer(0))
+        }),
     ))(input)
 }
 
@@ -245,6 +289,36 @@ fn mem_reg_move_instruction(input: &str) -> IResult<&str, MemRegMove> {
     )(input)
 }
 
+fn immediate_to_register_instruction(input: &str) -> IResult<&str, ImmediateToRegister> {
+    map_res(
+        preceded(
+            tag("mov "),
+            tuple((
+                terminated(register, argument_sep),
+                terminated(
+                    alt((
+                        map_res(literal_u8, |x| Ok::<_, ()>(Ok(x))),
+                        map_res(literal_u16, |x| Ok::<_, ()>(Err(x))),
+                    )),
+                    line_ending,
+                ),
+            )),
+        ),
+        |(register, contents)| {
+            Ok::<_, ()>(match contents {
+                Ok(contents) => {
+                    if register.is_wide() {
+                        ImmediateToRegister::Wide(register, contents as u16)
+                    } else {
+                        ImmediateToRegister::Byte(register, contents)
+                    }
+                }
+                Err(contents) => ImmediateToRegister::Wide(register, contents),
+            })
+        },
+    )(input)
+}
+
 fn instruction(input: &str) -> IResult<&str, Instruction> {
     alt((
         map_res(reg_reg_move_instruction, |v| {
@@ -255,6 +329,9 @@ fn instruction(input: &str) -> IResult<&str, Instruction> {
         }),
         map_res(mem_reg_move_instruction, |v| {
             Ok::<_, ()>(Instruction::MemRegMove(v))
+        }),
+        map_res(immediate_to_register_instruction, |v| {
+            Ok::<_, ()>(Instruction::ImmediateToRegister(v))
         }),
     ))(input)
 }

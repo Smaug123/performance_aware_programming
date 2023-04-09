@@ -81,13 +81,13 @@ impl Display for EffectiveAddress {
         match self {
             EffectiveAddress::Sum(w) => match w {
                 WithOffset::Basic((base, source_dest)) => {
-                    f.write_fmt(format_args!("{}{}", base, source_dest))
+                    f.write_fmt(format_args!("[{} + {}i]", base, source_dest))
                 }
                 WithOffset::WithU8((base, source_dest), offset) => {
-                    f.write_fmt(format_args!("[{}{} + {}]", base, source_dest, offset))
+                    f.write_fmt(format_args!("[{} + {}i + {}]", base, source_dest, offset))
                 }
                 WithOffset::WithU16((base, source_dest), offset) => {
-                    f.write_fmt(format_args!("[{}{} + {}]", base, source_dest, offset))
+                    f.write_fmt(format_args!("[{} + {}i + {}]", base, source_dest, offset))
                 }
             },
             EffectiveAddress::SpecifiedIn(register) => f.write_fmt(format_args!("{}", register)),
@@ -118,10 +118,17 @@ pub struct MemRegMove {
 }
 
 #[derive(Eq, PartialEq)]
+pub enum ImmediateToRegister {
+    Byte(Register, u8),
+    Wide(Register, u16),
+}
+
+#[derive(Eq, PartialEq)]
 pub enum Instruction {
     RegRegMove(RegRegMove),
     RegMemMove(RegMemMove),
     MemRegMove(MemRegMove),
+    ImmediateToRegister(ImmediateToRegister),
 }
 
 impl Display for Instruction {
@@ -135,6 +142,12 @@ impl Display for Instruction {
             }
             Instruction::MemRegMove(mov) => {
                 f.write_fmt(format_args!("mov {}, {}", mov.dest, mov.source))
+            }
+            Instruction::ImmediateToRegister(ImmediateToRegister::Byte(dest, value)) => {
+                f.write_fmt(format_args!("mov {}, {}", dest, value))
+            }
+            Instruction::ImmediateToRegister(ImmediateToRegister::Wide(dest, value)) => {
+                f.write_fmt(format_args!("mov {}, {}", dest, value))
             }
         }
     }
@@ -363,6 +376,32 @@ impl Instruction {
 
                 result
             }
+
+            Instruction::ImmediateToRegister(mov) => {
+                let mut result = Vec::<u8>::with_capacity(2);
+                let instruction = 0b10110000u8;
+                match mov {
+                    ImmediateToRegister::Byte(register, data) => {
+                        let (reg, is_wide) = register.to_id();
+                        if is_wide {
+                            panic!("Tried to store a byte into a word register")
+                        }
+                        result.push(instruction + reg);
+                        result.push(*data);
+                    }
+                    ImmediateToRegister::Wide(register, data) => {
+                        result.reserve_exact(1);
+                        let (reg, is_wide) = register.to_id();
+                        if !is_wide {
+                            panic!("Tried to store a word into a byte register")
+                        }
+                        result.push(instruction + 8 + reg);
+                        result.push((data % 256) as u8);
+                        result.push((data / 256) as u8);
+                    }
+                }
+                result
+            }
         }
     }
 
@@ -372,8 +411,8 @@ impl Instruction {
     {
         if let Some(b) = bytes.next() {
             if (b & 0b11111100u8) == 0b10001000u8 {
-                let d = b % 2;
-                let is_wide = (b / 2) % 2 == 1;
+                let d = (b / 2) % 2;
+                let is_wide = b % 2 == 1;
                 if let Some(mod_reg_rm) = bytes.next() {
                     let mode = (mod_reg_rm & 0b11000000) / 64;
                     let reg = (mod_reg_rm & 0b00111000) / 8;
@@ -411,7 +450,7 @@ impl Instruction {
                         } else {
                             0
                         };
-                        let displacement_low = if rm == 6 || mode == 2 {
+                        let displacement_low = if (rm == 6 && mode == 0) || mode == 2 {
                             let low = bytes.next().expect("required a 16-bit displacement");
                             (displacement_high as u16) * 256 + (low as u16)
                         } else {
@@ -479,6 +518,25 @@ impl Instruction {
                     }
                 } else {
                     panic!("mov required a second byte")
+                }
+            } else if (b & 0b11110000u8) == 0b10110000u8 {
+                // Immediate to register
+                let w = (b / 8) % 2;
+
+                if w == 1 {
+                    let reg = Register::of_id(b % 8, true);
+                    let next_low = bytes.next().unwrap() as u16;
+                    let next_high = bytes.next().unwrap() as u16;
+                    Some(Instruction::ImmediateToRegister(ImmediateToRegister::Wide(
+                        reg,
+                        next_low + 256 * next_high,
+                    )))
+                } else {
+                    let reg = Register::of_id(b % 8, false);
+                    let next_low = bytes.next().unwrap();
+                    Some(Instruction::ImmediateToRegister(ImmediateToRegister::Byte(
+                        reg, next_low,
+                    )))
                 }
             } else {
                 panic!("Unrecognised instruction byte: {}", b)
@@ -558,6 +616,7 @@ impl Program<Vec<Instruction>> {
         let mut output = Vec::new();
 
         while let Some(i) = Instruction::consume(&mut bytes) {
+            println!("{}", i);
             output.push(i);
         }
 
@@ -647,10 +706,10 @@ mod test_program {
     where
         T: AsRef<[u8]>,
     {
+        let disassembled = Program::of_bytes(input_bytecode.as_ref().iter().cloned());
+
         let (remaining, pre_compiled) = program(&input_asm).unwrap();
         assert_eq!(remaining, "");
-
-        let disassembled = Program::of_bytes(input_bytecode.as_ref().iter().cloned());
 
         if disassembled != pre_compiled {
             panic!(
@@ -682,9 +741,8 @@ mod test_program {
 
     #[test]
     fn test_register_register_many_mov_parser() {
-        let input_asm = include_str!(
-            "../computer_enhance/perfaware/part1/listing_0038_many_register_mov.asm"
-        );
+        let input_asm =
+            include_str!("../computer_enhance/perfaware/part1/listing_0038_many_register_mov.asm");
         let input_bytecode =
             include_bytes!("../computer_enhance/perfaware/part1/listing_0038_many_register_mov");
         test_parser(input_asm, input_bytecode)
@@ -694,17 +752,15 @@ mod test_program {
     fn test_register_register_many_mov_disassembler() {
         let bytecode =
             include_bytes!("../computer_enhance/perfaware/part1/listing_0038_many_register_mov");
-        let asm = include_str!(
-            "../computer_enhance/perfaware/part1/listing_0038_many_register_mov.asm"
-        );
+        let asm =
+            include_str!("../computer_enhance/perfaware/part1/listing_0038_many_register_mov.asm");
         test_disassembler(asm, bytecode)
     }
 
     #[test]
     fn test_register_register_more_mov_parser() {
-        let input_asm = include_str!(
-            "../computer_enhance/perfaware/part1/listing_0039_more_movs.asm"
-        );
+        let input_asm =
+            include_str!("../computer_enhance/perfaware/part1/listing_0039_more_movs.asm");
         let input_bytecode =
             include_bytes!("../computer_enhance/perfaware/part1/listing_0039_more_movs");
         test_parser(input_asm, input_bytecode)
@@ -712,11 +768,8 @@ mod test_program {
 
     #[test]
     fn test_register_register_more_mov_disassembler() {
-        let bytecode =
-            include_bytes!("../computer_enhance/perfaware/part1/listing_0039_more_movs");
-        let asm = include_str!(
-            "../computer_enhance/perfaware/part1/listing_0039_more_movs.asm"
-        );
+        let bytecode = include_bytes!("../computer_enhance/perfaware/part1/listing_0039_more_movs");
+        let asm = include_str!("../computer_enhance/perfaware/part1/listing_0039_more_movs.asm");
         test_disassembler(asm, bytecode)
     }
 }
