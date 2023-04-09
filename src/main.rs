@@ -679,4 +679,44 @@ mod test_program {
         );
         test_disassembler(asm, bytecode)
     }
+
+    #[test]
+    fn test_register_register_many_mov_parser() {
+        let input_asm = include_str!(
+            "../computer_enhance/perfaware/part1/listing_0038_many_register_mov.asm"
+        );
+        let input_bytecode =
+            include_bytes!("../computer_enhance/perfaware/part1/listing_0038_many_register_mov");
+        test_parser(input_asm, input_bytecode)
+    }
+
+    #[test]
+    fn test_register_register_many_mov_disassembler() {
+        let bytecode =
+            include_bytes!("../computer_enhance/perfaware/part1/listing_0038_many_register_mov");
+        let asm = include_str!(
+            "../computer_enhance/perfaware/part1/listing_0038_many_register_mov.asm"
+        );
+        test_disassembler(asm, bytecode)
+    }
+
+    #[test]
+    fn test_register_register_more_mov_parser() {
+        let input_asm = include_str!(
+            "../computer_enhance/perfaware/part1/listing_0039_more_movs.asm"
+        );
+        let input_bytecode =
+            include_bytes!("../computer_enhance/perfaware/part1/listing_0039_more_movs");
+        test_parser(input_asm, input_bytecode)
+    }
+
+    #[test]
+    fn test_register_register_more_mov_disassembler() {
+        let bytecode =
+            include_bytes!("../computer_enhance/perfaware/part1/listing_0039_more_movs");
+        let asm = include_str!(
+            "../computer_enhance/perfaware/part1/listing_0039_more_movs.asm"
+        );
+        test_disassembler(asm, bytecode)
+    }
 }
