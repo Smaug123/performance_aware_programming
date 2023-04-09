@@ -1,6 +1,6 @@
 use std::fmt::{Display, Write};
 
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Debug)]
 pub enum GeneralRegister {
     A,
     B,
@@ -40,7 +40,7 @@ impl Display for GeneralRegister {
     }
 }
 
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Debug)]
 pub enum SpecialRegister {
     StackPointer,
     BasePointer,
@@ -81,13 +81,13 @@ impl Display for SpecialRegister {
     }
 }
 
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Debug)]
 pub enum ByteRegisterSubset {
     High,
     Low,
 }
 
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Debug)]
 pub enum RegisterSubset {
     All,
     Subset(ByteRegisterSubset),
@@ -103,7 +103,7 @@ impl Display for RegisterSubset {
     }
 }
 
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Debug)]
 pub enum Register {
     General(GeneralRegister, RegisterSubset),
     Special(SpecialRegister),
@@ -136,6 +136,26 @@ impl Register {
                 GeneralRegister::of_id(id % 4),
                 RegisterSubset::Subset(subset),
             )
+        }
+    }
+
+    // Returns true if the result is wide.
+    pub fn to_id(self: &Register) -> (u8, bool) {
+        match self {
+            Register::Special(s) => (s.to_id(), true),
+            Register::General(reg, sub) => match sub {
+                RegisterSubset::All => (reg.to_id(), true),
+                RegisterSubset::Subset(ByteRegisterSubset::High) => (4 + reg.to_id(), false),
+                RegisterSubset::Subset(ByteRegisterSubset::Low) => (reg.to_id(), false),
+            },
+        }
+    }
+
+    pub fn is_wide(self: &Register) -> bool {
+        match self {
+            Register::Special(_) => true,
+            Register::General(_, RegisterSubset::All) => true,
+            Register::General(_, RegisterSubset::Subset(_)) => false,
         }
     }
 }
