@@ -280,10 +280,12 @@ fn main() {
 
 #[cfg(test)]
 mod test_program {
+    use crate::Program;
+
     use super::assembly::program;
 
     #[test]
-    fn test_parser() {
+    fn test_register_register_mov_parser() {
         let input_asm = include_str!(
             "../computer_enhance/perfaware/part1/listing_0037_single_register_mov.asm"
         );
@@ -304,6 +306,26 @@ mod test_program {
                     expected, actual, i
                 )
             }
+        }
+    }
+
+    #[test]
+    fn test_register_register_mov_disassembler() {
+        let bytecode =
+            include_bytes!("../computer_enhance/perfaware/part1/listing_0037_single_register_mov");
+        let asm = include_str!(
+            "../computer_enhance/perfaware/part1/listing_0037_single_register_mov.asm"
+        );
+        let (remaining, pre_compiled) = program(&asm).unwrap();
+        assert_eq!(remaining, "");
+
+        let disassembled = Program::of_bytes(bytecode.iter().cloned());
+
+        if disassembled != pre_compiled {
+            panic!(
+                "Failed assertion. Our disassembly:\n{}\nReference:\n{}",
+                disassembled, pre_compiled
+            );
         }
     }
 }
