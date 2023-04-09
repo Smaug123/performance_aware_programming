@@ -108,6 +108,48 @@ impl Instruction {
             }
         }
     }
+
+    fn consume<I>(bytes: &mut I) -> Option<Instruction>
+    where
+        I: Iterator<Item = u8>,
+    {
+        if let Some(b) = bytes.next() {
+            if (b & 0b11111100u8) == 0b10001000u8 {
+                let d = b % 2;
+                let is_wide = (b / 2) % 2 == 1;
+                if let Some(mod_reg_rm) = bytes.next() {
+                    let mode = (mod_reg_rm & 0b11000000) / 64;
+                    let reg = (mod_reg_rm & 0b00111000) / 8;
+                    let rm = mod_reg_rm & 0b00000111;
+
+                    if mode == 3 {
+                        let rm = Register::of_id(rm, is_wide);
+                        let reg = Register::of_id(reg, is_wide);
+                        let instruction = if d == 0 {
+                            MoveInstruction {
+                                source: reg,
+                                dest: rm,
+                            }
+                        } else {
+                            MoveInstruction {
+                                source: rm,
+                                dest: reg,
+                            }
+                        };
+                        Some(Instruction::Move(instruction))
+                    } else {
+                        panic!("Unimplemented mode {} for instruction {}, we only know register-register mov", mode, b)
+                    }
+                } else {
+                    panic!("mov required a second byte")
+                }
+            } else {
+                panic!("Unrecognised instruction byte: {}", b)
+            }
+        } else {
+            None
+        }
+    }
 }
 
 pub struct Program<T>
@@ -117,6 +159,30 @@ where
     bits: u8,
     instructions: T,
 }
+
+impl<T> PartialEq for Program<T>
+where
+    T: AsRef<[Instruction]>,
+{
+    fn eq(&self, other: &Self) -> bool {
+        if self.bits != other.bits {
+            return false;
+        };
+        let iter1 = self.instructions.as_ref();
+        let iter2 = self.instructions.as_ref();
+        if iter1.len() != iter2.len() {
+            return false;
+        }
+
+        if !iter1.iter().zip(iter2.iter()).all(|(x, y)| x == y) {
+            return false;
+        }
+
+        true
+    }
+}
+
+impl<T> Eq for Program<T> where T: AsRef<[Instruction]> {}
 
 impl<T> Display for Program<T>
 where
@@ -144,6 +210,24 @@ where
             .iter()
             .flat_map(Instruction::to_bytes)
             .collect()
+    }
+}
+
+impl Program<Vec<Instruction>> {
+    fn of_bytes<I>(mut bytes: I) -> Program<Vec<Instruction>>
+    where
+        I: Iterator<Item = u8>,
+    {
+        let mut output = Vec::new();
+
+        while let Some(i) = Instruction::consume(&mut bytes) {
+            output.push(i);
+        }
+
+        Program {
+            bits: 16,
+            instructions: output,
+        }
     }
 }
 
@@ -185,14 +269,23 @@ fn main() {
         );
         std::process::exit(1)
     }
+
+    let disassembled = Program::of_bytes(expected_bytecode.iter().cloned());
+
+    if disassembled != compiled {
+        println!("Program failed to disassemble back to the compiled version. Compiled:\n{}\nDisassembled again:\n{}", compiled, disassembled);
+        std::process::exit(3)
+    }
 }
 
 #[cfg(test)]
 mod test_program {
+    use crate::Program;
+
     use super::assembly::program;
 
     #[test]
-    fn test_parser() {
+    fn test_register_register_mov_parser() {
         let input_asm = include_str!(
             "../computer_enhance/perfaware/part1/listing_0037_single_register_mov.asm"
         );
@@ -213,6 +306,26 @@ mod test_program {
                     expected, actual, i
                 )
             }
+        }
+    }
+
+    #[test]
+    fn test_register_register_mov_disassembler() {
+        let bytecode =
+            include_bytes!("../computer_enhance/perfaware/part1/listing_0037_single_register_mov");
+        let asm = include_str!(
+            "../computer_enhance/perfaware/part1/listing_0037_single_register_mov.asm"
+        );
+        let (remaining, pre_compiled) = program(&asm).unwrap();
+        assert_eq!(remaining, "");
+
+        let disassembled = Program::of_bytes(bytecode.iter().cloned());
+
+        if disassembled != pre_compiled {
+            panic!(
+                "Failed assertion. Our disassembly:\n{}\nReference:\n{}",
+                disassembled, pre_compiled
+            );
         }
     }
 }
