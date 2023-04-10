@@ -680,6 +680,26 @@ mod test_program {
         assert_ne!(program1, program2);
     }
 
+    #[test]
+    fn test_programs_with_identical_instruction_sequences_are_equal() {
+        let program1 = Program {
+            bits: 64,
+            instructions: vec![Instruction::ImmediateToRegister(ImmediateToRegister::Byte(
+                Register::General(GeneralRegister::D, RegisterSubset::All),
+                1,
+            ))],
+        };
+        let program2 = Program {
+            bits: 64,
+            instructions: vec![Instruction::ImmediateToRegister(ImmediateToRegister::Byte(
+                Register::General(GeneralRegister::D, RegisterSubset::All),
+                1,
+            ))],
+        };
+
+        assert_eq!(program1, program2);
+    }
+
     fn test_parser<T>(input_asm: &str, input_bytecode: T)
     where
         T: AsRef<[u8]>,
