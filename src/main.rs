@@ -551,6 +551,7 @@ impl Instruction {
     }
 }
 
+#[derive(Debug, Eq, PartialEq)]
 pub struct Program<T>
 where
     T: AsRef<[Instruction]>,
@@ -558,30 +559,6 @@ where
     bits: u8,
     instructions: T,
 }
-
-impl<T> PartialEq for Program<T>
-where
-    T: AsRef<[Instruction]>,
-{
-    fn eq(&self, other: &Self) -> bool {
-        if self.bits != other.bits {
-            return false;
-        };
-        let iter1 = self.instructions.as_ref();
-        let iter2 = self.instructions.as_ref();
-        if iter1.len() != iter2.len() {
-            return false;
-        }
-
-        if !iter1.iter().zip(iter2.iter()).all(|(x, y)| x == y) {
-            return false;
-        }
-
-        true
-    }
-}
-
-impl<T> Eq for Program<T> where T: AsRef<[Instruction]> {}
 
 impl<T> Display for Program<T>
 where
@@ -681,10 +658,27 @@ fn main() {
 mod test_program {
     use crate::{
         register::{GeneralRegister, Register, RegisterSubset},
-        Instruction, MemRegMove, Program,
+        ImmediateToRegister, Instruction, MemRegMove, Program,
     };
 
     use super::assembly::program;
+
+    #[test]
+    fn test_programs_with_different_instruction_sequences_are_not_equal() {
+        let program1 = Program {
+            bits: 64,
+            instructions: vec![],
+        };
+        let program2 = Program {
+            bits: 64,
+            instructions: vec![Instruction::ImmediateToRegister(ImmediateToRegister::Byte(
+                Register::General(GeneralRegister::D, RegisterSubset::All),
+                1,
+            ))],
+        };
+
+        assert_ne!(program1, program2);
+    }
 
     fn test_parser<T>(input_asm: &str, input_bytecode: T)
     where
