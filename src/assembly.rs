@@ -10,8 +10,8 @@ use nom::{
 
 use crate::{
     register::{ByteRegisterSubset, GeneralRegister, Register, RegisterSubset, SpecialRegister},
-    Base, EffectiveAddress, ImmediateToRegister, Instruction, MemRegMove, Program, RegMemMove,
-    RegRegMove, SourceDest, WithOffset,
+    AccumulatorToMemory, Base, EffectiveAddress, ImmediateToRegister, Instruction, MemRegMove,
+    MemoryToAccumulator, Program, RegMemMove, RegRegMove, SourceDest, WithOffset, ImmediateToRegisterOrMemory,
 };
 
 fn comment(input: &str) -> IResult<&str, &str> {
@@ -152,14 +152,14 @@ fn absolute_u16(input: &str) -> IResult<&str, u16> {
 
 fn negative_u8(input: &str) -> IResult<&str, u8> {
     map_res(
-        preceded(char('-'), alt((digit1, preceded(tag("byte "), digit1)))),
+        preceded(ws(char('-')), alt((digit1, preceded(tag("byte "), digit1)))),
         |x| str::parse::<u8>(x).map(|x| 255 - x + 1),
     )(input)
 }
 
 fn negative_u16(input: &str) -> IResult<&str, u16> {
     map_res(
-        preceded(char('-'), alt((digit1, preceded(tag("word "), digit1)))),
+        preceded(ws(char('-')), alt((digit1, preceded(tag("word "), digit1)))),
         |x| str::parse::<u16>(x).map(|x| 65535 - x + 1),
     )(input)
 }
@@ -184,16 +184,15 @@ fn effective_address(input: &str) -> IResult<&str, EffectiveAddress> {
                 ))))
             },
         ),
-        // Sum, with positive offset
+        // Sum, with offset
         map_res(
             bracketed(tuple((
                 base,
                 ws(char('+')),
                 source_dest,
-                ws(char('+')),
-                literal_u8,
+                alt((preceded(ws(char('+')), absolute_u8), negative_u8)),
             ))),
-            |(base, _, source_dest, _, offset)| {
+            |(base, _, source_dest, offset)| {
                 Ok::<_, ()>(EffectiveAddress::Sum(WithOffset::WithU8(
                     (base, source_dest),
                     offset,
@@ -205,10 +204,9 @@ fn effective_address(input: &str) -> IResult<&str, EffectiveAddress> {
                 base,
                 ws(char('+')),
                 source_dest,
-                ws(char('+')),
-                literal_u16,
+                alt((preceded(ws(char('+')), absolute_u16), negative_u16)),
             ))),
-            |(base, _, source_dest, _, offset)| {
+            |(base, _, source_dest, offset)| {
                 Ok::<_, ()>(EffectiveAddress::Sum(WithOffset::WithU16(
                     (base, source_dest),
                     offset,
@@ -222,8 +220,8 @@ fn effective_address(input: &str) -> IResult<&str, EffectiveAddress> {
             )))
         }),
         map_res(
-            bracketed(tuple((source_dest, ws(char('+')), absolute_u8))),
-            |(source_dest, _, offset)| {
+            bracketed(tuple((source_dest, alt((preceded(ws(char('+')), absolute_u8), negative_u8))))),
+            |(source_dest, offset)| {
                 Ok::<_, ()>(EffectiveAddress::SpecifiedIn(WithOffset::WithU8(
                     source_dest,
                     offset,
@@ -231,8 +229,8 @@ fn effective_address(input: &str) -> IResult<&str, EffectiveAddress> {
             },
         ),
         map_res(
-            bracketed(tuple((source_dest, ws(char('+')), absolute_u16))),
-            |(source_dest, _, offset)| {
+            bracketed(tuple((source_dest, alt((preceded(ws(char('+')), absolute_u16), negative_u16))))),
+            |(source_dest, offset)| {
                 Ok::<_, ()>(EffectiveAddress::SpecifiedIn(WithOffset::WithU16(
                     source_dest,
                     offset,
@@ -244,12 +242,12 @@ fn effective_address(input: &str) -> IResult<&str, EffectiveAddress> {
             Ok::<_, ()>(EffectiveAddress::Bx(WithOffset::Basic(())))
         }),
         map_res(
-            bracketed(tuple((tag("bx"), ws(char('+')), absolute_u8))),
-            |(_, _, offset)| Ok::<_, ()>(EffectiveAddress::Bx(WithOffset::WithU8((), offset))),
+            bracketed(tuple((tag("bx"), alt((preceded(ws(char('+')), absolute_u8), negative_u8))))),
+            |(_, offset)| Ok::<_, ()>(EffectiveAddress::Bx(WithOffset::WithU8((), offset))),
         ),
         map_res(
-            bracketed(tuple((tag("bx"), ws(char('+')), absolute_u16))),
-            |(_, _, offset)| Ok::<_, ()>(EffectiveAddress::Bx(WithOffset::WithU16((), offset))),
+            bracketed(tuple((tag("bx"), alt((preceded(ws(char('+')), absolute_u16), negative_u16))))),
+            |(_, offset)| Ok::<_, ()>(EffectiveAddress::Bx(WithOffset::WithU16((), offset))),
         ),
         // Direct memory address
         map_res(direct_offset, |offset| {
@@ -257,12 +255,12 @@ fn effective_address(input: &str) -> IResult<&str, EffectiveAddress> {
         }),
         // Offset from base pointer
         map_res(
-            bracketed(tuple((tag("bp"), ws(char('+')), absolute_u8))),
-            |(_, _, offset)| Ok::<_, ()>(EffectiveAddress::BasePointer(offset)),
+            bracketed(tuple((tag("bp"), alt((preceded(ws(char('+')), absolute_u8), negative_u8))))),
+            |(_, offset)| Ok::<_, ()>(EffectiveAddress::BasePointer(offset)),
         ),
         map_res(
-            bracketed(tuple((tag("bp"), ws(char('+')), absolute_u16))),
-            |(_, _, offset)| Ok::<_, ()>(EffectiveAddress::BasePointerWide(offset)),
+            bracketed(tuple((tag("bp"), alt((preceded(ws(char('+')), absolute_u16), negative_u16))))),
+            |(_, offset)| Ok::<_, ()>(EffectiveAddress::BasePointerWide(offset)),
         ),
         // Specific support for [bp], which can't be represented as a simple instruction
         map_res(bracketed(tag("bp")), |_| {
@@ -337,8 +335,60 @@ fn immediate_to_register_instruction(input: &str) -> IResult<&str, ImmediateToRe
     )(input)
 }
 
+fn immediate_to_memory_instruction(input: &str) -> IResult<&str, ImmediateToRegisterOrMemory> {
+    map_res(
+        tuple((terminated(preceded(tag("mov "), effective_address), argument_sep), alt((map_res(literal_u8, |x| Ok::<_, ()>(Ok::<_, u16>(x))), map_res(literal_u16, |x| Ok::<_, ()>(Err::<u8, _>(x))))))),
+        |(addr, x)| {
+            Ok::<_, ()>(match x {
+                Ok(b) => ImmediateToRegisterOrMemory::Byte(addr, b),
+                Err(b) => ImmediateToRegisterOrMemory::Word(addr, b),
+            })
+        }
+    )(input)
+}
+
+fn memory_to_accumulator_instruction(input: &str) -> IResult<&str, MemoryToAccumulator> {
+    map_res(
+        preceded(
+            tag("mov a"),
+            tuple((
+                terminated(alt((char('h'), char('x'))), argument_sep),
+                bracketed(literal_u16),
+            )),
+        ),
+        |(acc, address)| {
+            let is_wide = acc == 'x';
+            Ok::<_, ()>(MemoryToAccumulator { address, is_wide })
+        },
+    )(input)
+}
+
+fn accumulator_to_memory_instruction(input: &str) -> IResult<&str, AccumulatorToMemory> {
+    map_res(
+        preceded(
+            tag("mov "),
+            tuple((
+                terminated(bracketed(literal_u16), tuple((argument_sep, char('a')))),
+                alt((char('h'), char('x'))),
+            )),
+        ),
+        |(address, acc)| {
+            let is_wide = acc == 'x';
+            Ok::<_, ()>(AccumulatorToMemory { address, is_wide })
+        },
+    )(input)
+}
+
 fn instruction(input: &str) -> IResult<&str, Instruction> {
     alt((
+        // This must come before MemRegMove.
+        map_res(memory_to_accumulator_instruction, |v| {
+            Ok::<_, ()>(Instruction::MemoryToAccumulator(v))
+        }),
+        // This must come before RegMemMove.
+        map_res(accumulator_to_memory_instruction, |v| {
+            Ok::<_, ()>(Instruction::AccumulatorToMemory(v))
+        }),
         map_res(reg_reg_move_instruction, |v| {
             Ok::<_, ()>(Instruction::RegRegMove(v))
         }),
@@ -350,6 +400,9 @@ fn instruction(input: &str) -> IResult<&str, Instruction> {
         }),
         map_res(immediate_to_register_instruction, |v| {
             Ok::<_, ()>(Instruction::ImmediateToRegister(v))
+        }),
+        map_res(immediate_to_memory_instruction, |v| {
+            Ok::<_, ()>(Instruction::ImmediateToRegisterOrMemory(v))
         }),
     ))(input)
 }
