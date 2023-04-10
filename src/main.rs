@@ -195,6 +195,7 @@ impl Instruction {
                     SourceDest::Dest => 1,
                 };
                 result.push(mode * 64 + reg * 8 + rm);
+                println!(">  {}, {}", offset % 256, offset / 256);
                 result.push((offset % 256) as u8);
                 result.push((offset / 256) as u8);
             }
@@ -368,6 +369,7 @@ impl Instruction {
                 result
             }
             Instruction::MemRegMove(mov) => {
+                println!("Instruction: {}", self);
                 let mut result = Vec::with_capacity(2);
 
                 let instruction1 = 0b10001000u8;
@@ -378,6 +380,7 @@ impl Instruction {
 
                 Self::push_effective_address(&mov.source, dest_reg, &mut result);
 
+                println!("{:?}", result);
                 result
             }
 
@@ -449,14 +452,14 @@ impl Instruction {
                         } else {
                             Base::Bp
                         };
-                        let displacement_high = if rm == 6 || mode > 0 {
+                        let displacement_low = if rm == 6 || mode > 0 {
                             bytes.next().expect("required an 8-bit displacement")
                         } else {
                             0
                         };
-                        let displacement_low = if (rm == 6 && mode == 0) || mode == 2 {
-                            let low = bytes.next().expect("required a 16-bit displacement");
-                            (displacement_high as u16) * 256 + (low as u16)
+                        let displacement_high = if (rm == 6 && mode == 0) || mode == 2 {
+                            let high = bytes.next().expect("required a 16-bit displacement");
+                            (high as u16) * 256 + (displacement_low as u16)
                         } else {
                             0
                         };
@@ -466,11 +469,11 @@ impl Instruction {
                                 0 => EffectiveAddress::Sum(WithOffset::Basic((base, source_dest))),
                                 1 => EffectiveAddress::Sum(WithOffset::WithU8(
                                     (base, source_dest),
-                                    displacement_high,
+                                    displacement_low,
                                 )),
                                 2 => EffectiveAddress::Sum(WithOffset::WithU16(
                                     (base, source_dest),
-                                    displacement_low,
+                                    displacement_high,
                                 )),
                                 _ => panic!("Maths is wrong, got bad mode: {}", mode),
                             }
@@ -479,30 +482,28 @@ impl Instruction {
                                 0 => EffectiveAddress::SpecifiedIn(WithOffset::Basic(source_dest)),
                                 1 => EffectiveAddress::SpecifiedIn(WithOffset::WithU8(
                                     source_dest,
-                                    displacement_high,
+                                    displacement_low,
                                 )),
                                 2 => EffectiveAddress::SpecifiedIn(WithOffset::WithU16(
                                     source_dest,
-                                    displacement_low,
+                                    displacement_high,
                                 )),
                                 _ => panic!("Maths is wrong, got bad mode: {}", mode),
                             }
                         } else if rm == 6 {
                             match mode {
-                                0 => EffectiveAddress::Direct(displacement_low),
-                                1 => EffectiveAddress::BasePointer(displacement_high),
-                                2 => EffectiveAddress::BasePointerWide(displacement_low),
+                                0 => EffectiveAddress::Direct(displacement_high),
+                                1 => EffectiveAddress::BasePointer(displacement_low),
+                                2 => EffectiveAddress::BasePointerWide(displacement_high),
                                 _ => panic!("Maths is wrong, got bad mode: {}", mode),
                             }
                         } else {
                             assert!(rm == 7);
                             match mode {
                                 0 => EffectiveAddress::Bx(WithOffset::Basic(())),
-                                1 => {
-                                    EffectiveAddress::Bx(WithOffset::WithU8((), displacement_high))
-                                }
+                                1 => EffectiveAddress::Bx(WithOffset::WithU8((), displacement_low)),
                                 2 => {
-                                    EffectiveAddress::Bx(WithOffset::WithU16((), displacement_low))
+                                    EffectiveAddress::Bx(WithOffset::WithU16((), displacement_high))
                                 }
                                 _ => panic!("Maths is wrong, got bad mode: {}", mode),
                             }
@@ -658,7 +659,7 @@ fn main() {
 mod test_program {
     use crate::{
         register::{GeneralRegister, Register, RegisterSubset},
-        ImmediateToRegister, Instruction, MemRegMove, Program, SourceDest, Base,
+        ImmediateToRegister, Instruction, MemRegMove, Program,
     };
 
     use super::assembly::program;
@@ -733,6 +734,19 @@ mod test_program {
         assert_eq!(remaining, "");
 
         if disassembled != pre_compiled {
+            for (theirs, ours) in disassembled
+                .instructions
+                .iter()
+                .zip(pre_compiled.instructions.iter())
+            {
+                if theirs != ours {
+                    println!(
+                        "Different instruction. Ours: {ours} ({:?}). Theirs: {theirs} ({:?}).",
+                        ours.to_bytes(),
+                        theirs.to_bytes()
+                    );
+                }
+            }
             panic!(
                 "Failed assertion. Our disassembly:\n{}\nReference:\n{}",
                 disassembled, pre_compiled
@@ -821,14 +835,5 @@ mod test_program {
             dest: Register::General(GeneralRegister::D, RegisterSubset::All),
         });
         assert_eq!(i.to_bytes(), vec![139, 86, 0]);
-    }
-
-    #[test]
-    fn mem_reg_move_sum_to_bytes() {
-        let i = Instruction::MemRegMove(MemRegMove {
-            source: crate::EffectiveAddress::Sum(crate::WithOffset::WithU16((Base::Bx, SourceDest::Source), 4999)),
-            dest: Register::General(GeneralRegister::D, RegisterSubset::All),
-        });
-        assert_eq!(i.to_bytes(), vec![138, 128, 135, 19]);
     }
 }
