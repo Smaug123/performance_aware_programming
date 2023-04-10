@@ -449,14 +449,14 @@ impl Instruction {
                         } else {
                             Base::Bp
                         };
-                        let displacement_high = if rm == 6 || mode > 0 {
+                        let displacement_low = if rm == 6 || mode > 0 {
                             bytes.next().expect("required an 8-bit displacement")
                         } else {
                             0
                         };
-                        let displacement_low = if (rm == 6 && mode == 0) || mode == 2 {
-                            let low = bytes.next().expect("required a 16-bit displacement");
-                            (displacement_high as u16) * 256 + (low as u16)
+                        let displacement_high = if (rm == 6 && mode == 0) || mode == 2 {
+                            let high = bytes.next().expect("required a 16-bit displacement");
+                            (high as u16) * 256 + (displacement_low as u16)
                         } else {
                             0
                         };
@@ -466,11 +466,11 @@ impl Instruction {
                                 0 => EffectiveAddress::Sum(WithOffset::Basic((base, source_dest))),
                                 1 => EffectiveAddress::Sum(WithOffset::WithU8(
                                     (base, source_dest),
-                                    displacement_high,
+                                    displacement_low,
                                 )),
                                 2 => EffectiveAddress::Sum(WithOffset::WithU16(
                                     (base, source_dest),
-                                    displacement_low,
+                                    displacement_high,
                                 )),
                                 _ => panic!("Maths is wrong, got bad mode: {}", mode),
                             }
@@ -479,30 +479,28 @@ impl Instruction {
                                 0 => EffectiveAddress::SpecifiedIn(WithOffset::Basic(source_dest)),
                                 1 => EffectiveAddress::SpecifiedIn(WithOffset::WithU8(
                                     source_dest,
-                                    displacement_high,
+                                    displacement_low,
                                 )),
                                 2 => EffectiveAddress::SpecifiedIn(WithOffset::WithU16(
                                     source_dest,
-                                    displacement_low,
+                                    displacement_high,
                                 )),
                                 _ => panic!("Maths is wrong, got bad mode: {}", mode),
                             }
                         } else if rm == 6 {
                             match mode {
-                                0 => EffectiveAddress::Direct(displacement_low),
-                                1 => EffectiveAddress::BasePointer(displacement_high),
-                                2 => EffectiveAddress::BasePointerWide(displacement_low),
+                                0 => EffectiveAddress::Direct(displacement_high),
+                                1 => EffectiveAddress::BasePointer(displacement_low),
+                                2 => EffectiveAddress::BasePointerWide(displacement_high),
                                 _ => panic!("Maths is wrong, got bad mode: {}", mode),
                             }
                         } else {
                             assert!(rm == 7);
                             match mode {
                                 0 => EffectiveAddress::Bx(WithOffset::Basic(())),
-                                1 => {
-                                    EffectiveAddress::Bx(WithOffset::WithU8((), displacement_high))
-                                }
+                                1 => EffectiveAddress::Bx(WithOffset::WithU8((), displacement_low)),
                                 2 => {
-                                    EffectiveAddress::Bx(WithOffset::WithU16((), displacement_low))
+                                    EffectiveAddress::Bx(WithOffset::WithU16((), displacement_high))
                                 }
                                 _ => panic!("Maths is wrong, got bad mode: {}", mode),
                             }
@@ -551,6 +549,7 @@ impl Instruction {
     }
 }
 
+#[derive(Debug, Eq, PartialEq)]
 pub struct Program<T>
 where
     T: AsRef<[Instruction]>,
@@ -558,30 +557,6 @@ where
     bits: u8,
     instructions: T,
 }
-
-impl<T> PartialEq for Program<T>
-where
-    T: AsRef<[Instruction]>,
-{
-    fn eq(&self, other: &Self) -> bool {
-        if self.bits != other.bits {
-            return false;
-        };
-        let iter1 = self.instructions.as_ref();
-        let iter2 = self.instructions.as_ref();
-        if iter1.len() != iter2.len() {
-            return false;
-        }
-
-        if !iter1.iter().zip(iter2.iter()).all(|(x, y)| x == y) {
-            return false;
-        }
-
-        true
-    }
-}
-
-impl<T> Eq for Program<T> where T: AsRef<[Instruction]> {}
 
 impl<T> Display for Program<T>
 where
@@ -681,10 +656,47 @@ fn main() {
 mod test_program {
     use crate::{
         register::{GeneralRegister, Register, RegisterSubset},
-        Instruction, MemRegMove, Program,
+        ImmediateToRegister, Instruction, MemRegMove, Program,
     };
 
     use super::assembly::program;
+
+    #[test]
+    fn test_programs_with_different_instruction_sequences_are_not_equal() {
+        let program1 = Program {
+            bits: 64,
+            instructions: vec![],
+        };
+        let program2 = Program {
+            bits: 64,
+            instructions: vec![Instruction::ImmediateToRegister(ImmediateToRegister::Byte(
+                Register::General(GeneralRegister::D, RegisterSubset::All),
+                1,
+            ))],
+        };
+
+        assert_ne!(program1, program2);
+    }
+
+    #[test]
+    fn test_programs_with_identical_instruction_sequences_are_equal() {
+        let program1 = Program {
+            bits: 64,
+            instructions: vec![Instruction::ImmediateToRegister(ImmediateToRegister::Byte(
+                Register::General(GeneralRegister::D, RegisterSubset::All),
+                1,
+            ))],
+        };
+        let program2 = Program {
+            bits: 64,
+            instructions: vec![Instruction::ImmediateToRegister(ImmediateToRegister::Byte(
+                Register::General(GeneralRegister::D, RegisterSubset::All),
+                1,
+            ))],
+        };
+
+        assert_eq!(program1, program2);
+    }
 
     fn test_parser<T>(input_asm: &str, input_bytecode: T)
     where
@@ -719,6 +731,19 @@ mod test_program {
         assert_eq!(remaining, "");
 
         if disassembled != pre_compiled {
+            for (theirs, ours) in disassembled
+                .instructions
+                .iter()
+                .zip(pre_compiled.instructions.iter())
+            {
+                if theirs != ours {
+                    println!(
+                        "Different instruction. Ours: {ours} ({:?}). Theirs: {theirs} ({:?}).",
+                        ours.to_bytes(),
+                        theirs.to_bytes()
+                    );
+                }
+            }
             panic!(
                 "Failed assertion. Our disassembly:\n{}\nReference:\n{}",
                 disassembled, pre_compiled
