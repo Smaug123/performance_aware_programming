@@ -964,6 +964,25 @@ mod test_program {
     }
 
     #[test]
+    fn test_add_sub_cmp_jnz_parser() {
+        let input_asm =
+            include_str!("../computer_enhance/perfaware/part1/listing_0041_add_sub_cmp_jnz.asm");
+        let input_bytecode =
+            include_bytes!("../computer_enhance/perfaware/part1/listing_0041_add_sub_cmp_jnz");
+        test_parser(input_asm, input_bytecode)
+    }
+
+    #[test]
+    fn test_add_sub_cmp_jnz_disassembler() {
+        let bytecode =
+            include_bytes!("../computer_enhance/perfaware/part1/listing_0041_add_sub_cmp_jnz");
+        let asm =
+            include_str!("../computer_enhance/perfaware/part1/listing_0041_add_sub_cmp_jnz.asm");
+        test_disassembler(asm, bytecode)
+    }
+
+
+    #[test]
     fn mem_reg_move_to_bytes() {
         let i = Instruction::MemRegMove(MemRegMove {
             source: crate::EffectiveAddress::BasePointer(0),
