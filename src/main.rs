@@ -195,7 +195,6 @@ impl Instruction {
                     SourceDest::Dest => 1,
                 };
                 result.push(mode * 64 + reg * 8 + rm);
-                println!(">  {}, {}", offset % 256, offset / 256);
                 result.push((offset % 256) as u8);
                 result.push((offset / 256) as u8);
             }
@@ -369,7 +368,6 @@ impl Instruction {
                 result
             }
             Instruction::MemRegMove(mov) => {
-                println!("Instruction: {}", self);
                 let mut result = Vec::with_capacity(2);
 
                 let instruction1 = 0b10001000u8;
@@ -380,7 +378,6 @@ impl Instruction {
 
                 Self::push_effective_address(&mov.source, dest_reg, &mut result);
 
-                println!("{:?}", result);
                 result
             }
 
