@@ -90,7 +90,15 @@ impl Display for EffectiveAddress {
                     f.write_fmt(format_args!("[{} + {}i + {}]", base, source_dest, offset))
                 }
             },
-            EffectiveAddress::SpecifiedIn(register) => f.write_fmt(format_args!("{}", register)),
+            EffectiveAddress::SpecifiedIn(WithOffset::Basic(source_dest)) => {
+                f.write_fmt(format_args!("[{}i]", source_dest))
+            }
+            EffectiveAddress::SpecifiedIn(WithOffset::WithU8(source_dest, offset)) => {
+                f.write_fmt(format_args!("[{}i + {}]", source_dest, offset))
+            }
+            EffectiveAddress::SpecifiedIn(WithOffset::WithU16(source_dest, offset)) => {
+                f.write_fmt(format_args!("[{}i + {}]", source_dest, offset))
+            }
             EffectiveAddress::Bx(offset) => match offset {
                 WithOffset::Basic(()) => f.write_str("bx"),
                 WithOffset::WithU8((), offset) => f.write_fmt(format_args!("[bx + {}]", offset)),
@@ -123,6 +131,37 @@ pub enum ImmediateToRegister {
     Wide(Register, u16),
 }
 
+impl Display for ImmediateToRegister {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ImmediateToRegister::Byte(dest, value) => {
+                f.write_fmt(format_args!("{}, {}", dest, value))
+            }
+            ImmediateToRegister::Wide(dest, value) => {
+                f.write_fmt(format_args!("{}, {}", dest, value))
+            }
+        }
+    }
+}
+
+#[derive(Eq, PartialEq, Debug)]
+pub enum ImmediateToRegisterOrMemory {
+    Byte(EffectiveAddress, u8),
+    Word(EffectiveAddress, u16),
+}
+
+#[derive(Eq, PartialEq, Debug)]
+pub struct MemoryToAccumulator {
+    address: u16,
+    is_wide: bool,
+}
+
+#[derive(Eq, PartialEq, Debug)]
+pub struct AccumulatorToMemory {
+    address: u16,
+    is_wide: bool,
+}
+
 #[derive(Eq, PartialEq, Debug)]
 pub enum Instruction {
     /// Move a value from one register to another
@@ -133,6 +172,12 @@ pub enum Instruction {
     MemRegMove(MemRegMove),
     /// Load a literal value into a register
     ImmediateToRegister(ImmediateToRegister),
+    /// Load a literal value into a register or into memory
+    ImmediateToRegisterOrMemory(ImmediateToRegisterOrMemory),
+    /// Load a value from memory into the accumulator
+    MemoryToAccumulator(MemoryToAccumulator),
+    /// Store a value into memory from the accumulator
+    AccumulatorToMemory(AccumulatorToMemory),
 }
 
 impl Display for Instruction {
@@ -147,12 +192,27 @@ impl Display for Instruction {
             Instruction::MemRegMove(mov) => {
                 f.write_fmt(format_args!("mov {}, {}", mov.dest, mov.source))
             }
-            Instruction::ImmediateToRegister(ImmediateToRegister::Byte(dest, value)) => {
-                f.write_fmt(format_args!("mov {}, {}", dest, value))
+            Instruction::ImmediateToRegister(instruction) => {
+                f.write_fmt(format_args!("mov {}", instruction))
             }
-            Instruction::ImmediateToRegister(ImmediateToRegister::Wide(dest, value)) => {
-                f.write_fmt(format_args!("mov {}, {}", dest, value))
-            }
+            Instruction::ImmediateToRegisterOrMemory(ImmediateToRegisterOrMemory::Byte(
+                address,
+                value,
+            )) => f.write_fmt(format_args!("mov {}, {}", address, value)),
+            Instruction::ImmediateToRegisterOrMemory(ImmediateToRegisterOrMemory::Word(
+                address,
+                value,
+            )) => f.write_fmt(format_args!("mov {}, {}", address, value)),
+            Instruction::MemoryToAccumulator(instruction) => f.write_fmt(format_args!(
+                "mov a{}, [{}]",
+                if instruction.is_wide { 'x' } else { 'l' },
+                instruction.address
+            )),
+            Instruction::AccumulatorToMemory(instruction) => f.write_fmt(format_args!(
+                "mov [{}], a{}",
+                instruction.address,
+                if instruction.is_wide { 'x' } else { 'l' }
+            )),
         }
     }
 }
@@ -406,6 +466,113 @@ impl Instruction {
                 }
                 result
             }
+
+            Instruction::ImmediateToRegisterOrMemory(mov) => {
+                let mut result = Vec::<u8>::with_capacity(3);
+                let opcode = 0b11000110u8;
+
+                match mov {
+                    ImmediateToRegisterOrMemory::Byte(address, data) => {
+                        result.push(opcode);
+                        Self::push_effective_address(address, 0, &mut result);
+                        result.push(*data);
+                    }
+                    ImmediateToRegisterOrMemory::Word(address, data) => {
+                        result.push(opcode + 1);
+                        Self::push_effective_address(address, 0, &mut result);
+                        result.push((data % 256) as u8);
+                        result.push((data / 256) as u8);
+                    }
+                }
+
+                result
+            }
+
+            Instruction::MemoryToAccumulator(mov) => {
+                let mut result = Vec::<u8>::with_capacity(3);
+                result.push(0b10100000u8 + if mov.is_wide { 1 } else { 0 });
+                result.push((mov.address % 256) as u8);
+                result.push((mov.address / 256) as u8);
+
+                result
+            }
+
+            Instruction::AccumulatorToMemory(mov) => {
+                let mut result = Vec::<u8>::with_capacity(3);
+                result.push(0b10100010u8 + if mov.is_wide { 1 } else { 0 });
+                result.push((mov.address % 256) as u8);
+                result.push((mov.address / 256) as u8);
+
+                result
+            }
+        }
+    }
+
+    fn mode_rm_to_eaddr<I>(mode: u8, rm: u8, bytes: &mut I) -> EffectiveAddress
+    where
+        I: Iterator<Item = u8>,
+    {
+        let source_dest = if rm % 2 == 0 {
+            SourceDest::Source
+        } else {
+            SourceDest::Dest
+        };
+        let base = if (rm / 2) % 2 == 0 {
+            Base::Bx
+        } else {
+            Base::Bp
+        };
+        let displacement_low = if rm == 6 || mode > 0 {
+            bytes.next().expect("required an 8-bit displacement")
+        } else {
+            0
+        };
+        let displacement_high = if (rm == 6 && mode == 0) || mode == 2 {
+            let high = bytes.next().expect("required a 16-bit displacement");
+            (high as u16) * 256 + (displacement_low as u16)
+        } else {
+            0
+        };
+
+        if rm < 4 {
+            match mode {
+                0 => EffectiveAddress::Sum(WithOffset::Basic((base, source_dest))),
+                1 => {
+                    EffectiveAddress::Sum(WithOffset::WithU8((base, source_dest), displacement_low))
+                }
+                2 => EffectiveAddress::Sum(WithOffset::WithU16(
+                    (base, source_dest),
+                    displacement_high,
+                )),
+                _ => panic!("Maths is wrong, got bad mode: {}", mode),
+            }
+        } else if rm < 6 {
+            match mode {
+                0 => EffectiveAddress::SpecifiedIn(WithOffset::Basic(source_dest)),
+                1 => {
+                    EffectiveAddress::SpecifiedIn(WithOffset::WithU8(source_dest, displacement_low))
+                }
+                2 => EffectiveAddress::SpecifiedIn(WithOffset::WithU16(
+                    source_dest,
+                    displacement_high,
+                )),
+                _ => panic!("Maths is wrong, got bad mode: {}", mode),
+            }
+        } else if rm == 6 {
+            match mode {
+                0 => EffectiveAddress::Direct(displacement_high),
+                1 => EffectiveAddress::BasePointer(displacement_low),
+                2 => EffectiveAddress::BasePointerWide(displacement_high),
+                _ => panic!("Maths is wrong, got bad mode: {}", mode),
+            }
+        } else {
+            assert_eq!(rm, 7);
+            match mode {
+                0 => EffectiveAddress::Bx(WithOffset::Basic(())),
+                1 => EffectiveAddress::Bx(WithOffset::WithU8((), displacement_low)),
+                2 => EffectiveAddress::Bx(WithOffset::WithU16((), displacement_high)),
+                _ => panic!("Maths is wrong, got bad mode: {}", mode),
+            }
         }
     }
 
@@ -439,73 +606,7 @@ impl Instruction {
                         };
                         Some(Instruction::RegRegMove(instruction))
                     } else {
-                        let source_dest = if rm % 2 == 0 {
-                            SourceDest::Source
-                        } else {
-                            SourceDest::Dest
-                        };
-                        let base = if (rm / 2) % 2 == 0 {
-                            Base::Bx
-                        } else {
-                            Base::Bp
-                        };
-                        let displacement_low = if rm == 6 || mode > 0 {
-                            bytes.next().expect("required an 8-bit displacement")
-                        } else {
-                            0
-                        };
-                        let displacement_high = if (rm == 6 && mode == 0) || mode == 2 {
-                            let high = bytes.next().expect("required a 16-bit displacement");
-                            (high as u16) * 256 + (displacement_low as u16)
-                        } else {
-                            0
-                        };
-
-                        let mem_location = if rm < 4 {
-                            match mode {
-                                0 => EffectiveAddress::Sum(WithOffset::Basic((base, source_dest))),
-                                1 => EffectiveAddress::Sum(WithOffset::WithU8(
-                                    (base, source_dest),
-                                    displacement_low,
-                                )),
-                                2 => EffectiveAddress::Sum(WithOffset::WithU16(
-                                    (base, source_dest),
-                                    displacement_high,
-                                )),
-                                _ => panic!("Maths is wrong, got bad mode: {}", mode),
-                            }
-                        } else if rm < 6 {
-                            match mode {
-                                0 => EffectiveAddress::SpecifiedIn(WithOffset::Basic(source_dest)),
-                                1 => EffectiveAddress::SpecifiedIn(WithOffset::WithU8(
-                                    source_dest,
-                                    displacement_low,
-                                )),
-                                2 => EffectiveAddress::SpecifiedIn(WithOffset::WithU16(
-                                    source_dest,
-                                    displacement_high,
-                                )),
-                                _ => panic!("Maths is wrong, got bad mode: {}", mode),
-                            }
-                        } else if rm == 6 {
-                            match mode {
-                                0 => EffectiveAddress::Direct(displacement_high),
-                                1 => EffectiveAddress::BasePointer(displacement_low),
-                                2 => EffectiveAddress::BasePointerWide(displacement_high),
-                                _ => panic!("Maths is wrong, got bad mode: {}", mode),
-                            }
-                        } else {
-                            assert!(rm == 7);
-                            match mode {
-                                0 => EffectiveAddress::Bx(WithOffset::Basic(())),
-                                1 => EffectiveAddress::Bx(WithOffset::WithU8((), displacement_low)),
-                                2 => {
-                                    EffectiveAddress::Bx(WithOffset::WithU16((), displacement_high))
-                                }
-                                _ => panic!("Maths is wrong, got bad mode: {}", mode),
-                            }
-                        };
-
+                        let mem_location = Self::mode_rm_to_eaddr(mode, rm, bytes);
                         if d == 0 {
                             Some(Instruction::RegMemMove(RegMemMove {
                                 source: reg,
@@ -539,6 +640,45 @@ impl Instruction {
                     Some(Instruction::ImmediateToRegister(ImmediateToRegister::Byte(
                         reg, next_low,
                     )))
+                }
+            } else if (b & 0b11111110) == 0b10100000 {
+                // Memory to accumulator
+                let w = b % 2;
+                let addr_low = bytes.next().unwrap() as u16;
+                let addr_high = bytes.next().unwrap() as u16 * 256;
+                Some(Instruction::MemoryToAccumulator(MemoryToAccumulator {
+                    address: addr_high + addr_low,
+                    is_wide: w == 1,
+                }))
+            } else if (b & 0b11111110) == 0b10100010 {
+                // Accumulator to memory
+                let w = b % 2;
+                let addr_low = bytes.next().unwrap() as u16;
+                let addr_high = bytes.next().unwrap() as u16 * 256;
+                Some(Instruction::AccumulatorToMemory(AccumulatorToMemory {
+                    address: addr_high + addr_low,
+                    is_wide: w == 1,
+                }))
+            } else if (b & 0b11111110) == 0b11000110 {
+                // Immediate to register/memory
+                let w = b % 2;
+                let mod_reg_rm = bytes.next().unwrap();
+                let mode = (mod_reg_rm & 0b11000000) / 64;
+                let reg = (mod_reg_rm & 0b00111000) / 8;
+                let rm = mod_reg_rm & 0b00000111;
+                assert_eq!(reg, 0);
+                let dest = Self::mode_rm_to_eaddr(mode, rm, bytes);
+
+                let data_low = bytes.next().unwrap();
+                if w == 1 {
+                    let data_high = bytes.next().unwrap() as u16 * 256;
+                    Some(Instruction::ImmediateToRegisterOrMemory(
+                        ImmediateToRegisterOrMemory::Word(dest, data_high + data_low as u16),
+                    ))
+                } else {
+                    Some(Instruction::ImmediateToRegisterOrMemory(
+                        ImmediateToRegisterOrMemory::Byte(dest, data_low),
+                    ))
                 }
             } else {
                 panic!("Unrecognised instruction byte: {}", b)
@@ -805,25 +945,23 @@ mod test_program {
         test_disassembler(asm, bytecode)
     }
 
-    /*
-        #[test]
-        fn test_register_challenge_movs_parser() {
-            let input_asm =
-                include_str!("../computer_enhance/perfaware/part1/listing_0040_challenge_movs.asm");
-            let input_bytecode =
-                include_bytes!("../computer_enhance/perfaware/part1/listing_0040_challenge_movs");
-            test_parser(input_asm, input_bytecode)
-        }
+    #[test]
+    fn test_register_challenge_movs_parser() {
+        let input_asm =
+            include_str!("../computer_enhance/perfaware/part1/listing_0040_challenge_movs.asm");
+        let input_bytecode =
+            include_bytes!("../computer_enhance/perfaware/part1/listing_0040_challenge_movs");
+        test_parser(input_asm, input_bytecode)
+    }
 
-        #[test]
-        fn test_register_challenge_movs_disassembler() {
-            let bytecode =
-                include_bytes!("../computer_enhance/perfaware/part1/listing_0040_challenge_movs");
-            let asm =
-                include_str!("../computer_enhance/perfaware/part1/listing_0040_challenge_movs.asm");
-            test_disassembler(asm, bytecode)
-        }
-    */
+    #[test]
+    fn test_register_challenge_movs_disassembler() {
+        let bytecode =
+            include_bytes!("../computer_enhance/perfaware/part1/listing_0040_challenge_movs");
+        let asm =
+            include_str!("../computer_enhance/perfaware/part1/listing_0040_challenge_movs.asm");
+        test_disassembler(asm, bytecode)
+    }
 
     #[test]
     fn mem_reg_move_to_bytes() {
