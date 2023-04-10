@@ -658,7 +658,7 @@ fn main() {
 mod test_program {
     use crate::{
         register::{GeneralRegister, Register, RegisterSubset},
-        ImmediateToRegister, Instruction, MemRegMove, Program,
+        ImmediateToRegister, Instruction, MemRegMove, Program, SourceDest, Base,
     };
 
     use super::assembly::program;
@@ -821,5 +821,14 @@ mod test_program {
             dest: Register::General(GeneralRegister::D, RegisterSubset::All),
         });
         assert_eq!(i.to_bytes(), vec![139, 86, 0]);
+    }
+
+    #[test]
+    fn mem_reg_move_sum_to_bytes() {
+        let i = Instruction::MemRegMove(MemRegMove {
+            source: crate::EffectiveAddress::Sum(crate::WithOffset::WithU16((Base::Bx, SourceDest::Source), 4999)),
+            dest: Register::General(GeneralRegister::D, RegisterSubset::All),
+        });
+        assert_eq!(i.to_bytes(), vec![138, 128, 135, 19]);
     }
 }
