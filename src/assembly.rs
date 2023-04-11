@@ -450,8 +450,9 @@ fn arithmetic_select(input: &str) -> IResult<&str, ArithmeticInstructionSelect> 
                 tuple((
                     terminated(alt((char('l'), char('x'))), argument_sep),
                     alt((
-                        map_res(literal_u16, |x| Ok::<_, ()>(Ok(x))),
+                        // Order is important here.
                         map_res(literal_u8, |x| Ok::<_, ()>(Err(x))),
+                        map_res(literal_u16, |x| Ok::<_, ()>(Ok(x))),
                     )),
                 )),
             ),

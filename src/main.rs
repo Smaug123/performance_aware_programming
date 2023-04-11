@@ -545,7 +545,6 @@ impl ArithmeticInstruction {
         let mut result = Vec::<u8>::with_capacity(2);
         match &self.instruction {
             ArithmeticInstructionSelect::RegisterToRegister(data) => {
-                todo!();
                 let (rm, is_wide) = data.dest.to_id();
                 let d = 0;
                 result
@@ -1259,7 +1258,6 @@ where
         if self.bits != 16 {
             panic!("Only 16-bits supported");
         }
-        let mut size = 0usize;
         let mut labels = HashMap::new();
         for (counter, instruction) in self.instructions.as_ref().iter().enumerate() {
             match instruction {
