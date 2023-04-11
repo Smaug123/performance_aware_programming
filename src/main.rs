@@ -1380,6 +1380,16 @@ fn program_equal_ignoring_labels<A, B>(
     true
 }
 
+impl<'a, T, U> PartialEq<Program<U, &'a str>> for Program<T, i8>
+where
+    T: AsRef<[Instruction<i8>]>,
+    U: AsRef<[Instruction<&'a str>]>,
+{
+    fn eq(&self, other: &Program<U, &'a str>) -> bool {
+        Program::<T, i8>::to_bytes(self) == Program::<U, &'a str>::to_bytes(other)
+    }
+}
+
 fn main() {
     let args = Args::parse();
 
@@ -1406,9 +1416,14 @@ fn main() {
 
     let disassembled = Program::of_bytes(expected_bytecode.iter().cloned());
 
+    if disassembled != compiled {
+        println!("Disassembled and compiled versions do not produce the same bytes. From disassembly:\n{}\nFrom assembling the input asm:\n{}", disassembled, compiled);
+        std::process::exit(3)
+    }
+
     if !program_equal_ignoring_labels(&disassembled, &compiled) {
         println!("Program failed to disassemble back to the compiled version. Compiled:\n{}\nDisassembled again:\n{}", compiled, disassembled);
-        std::process::exit(3)
+        std::process::exit(4)
     }
 }
 
