@@ -1,4 +1,5 @@
 use std::fmt::{Display, Write};
+use const_panic::concat_panic;
 
 #[derive(Eq, PartialEq, Debug)]
 pub enum GeneralRegister {
@@ -9,7 +10,7 @@ pub enum GeneralRegister {
 }
 
 impl GeneralRegister {
-    pub fn to_id(&self) -> u8 {
+    pub const fn to_id(&self) -> u8 {
         match self {
             GeneralRegister::A => 0b00,
             GeneralRegister::B => 0b11,
@@ -18,13 +19,13 @@ impl GeneralRegister {
         }
     }
 
-    pub fn of_id(id: u8) -> GeneralRegister {
+    pub const fn of_id(id: u8) -> GeneralRegister {
         match id {
             0 => GeneralRegister::A,
             1 => GeneralRegister::C,
             2 => GeneralRegister::D,
             3 => GeneralRegister::B,
-            _ => panic!("Not a register: {}", id),
+            _ => concat_panic!("Not a register: {}", id),
         }
     }
 }
@@ -49,7 +50,7 @@ pub enum SpecialRegister {
 }
 
 impl SpecialRegister {
-    pub fn to_id(&self) -> u8 {
+    pub const fn to_id(&self) -> u8 {
         // These are all wide.
         4 + match self {
             SpecialRegister::StackPointer => 0,
@@ -59,13 +60,13 @@ impl SpecialRegister {
         }
     }
 
-    pub fn of_id(id: u8) -> SpecialRegister {
+    pub const fn of_id(id: u8) -> SpecialRegister {
         match id {
             4 => SpecialRegister::StackPointer,
             5 => SpecialRegister::BasePointer,
             6 => SpecialRegister::SourceIndex,
             7 => SpecialRegister::DestIndex,
-            _ => panic!("Not a special register ID: {}", id),
+            _ => concat_panic!("bad special register ID {}", id)
         }
     }
 }
@@ -119,7 +120,7 @@ impl Display for Register {
 }
 
 impl Register {
-    pub fn of_id(id: u8, is_wide: bool) -> Register {
+    pub const fn of_id(id: u8, is_wide: bool) -> Register {
         if is_wide {
             if id >= 4 {
                 Register::Special(SpecialRegister::of_id(id))
@@ -140,7 +141,7 @@ impl Register {
     }
 
     // Returns true if the result is wide.
-    pub fn to_id(self: &Register) -> (u8, bool) {
+    pub const fn to_id(self: &Register) -> (u8, bool) {
         match self {
             Register::Special(s) => (s.to_id(), true),
             Register::General(reg, sub) => match sub {
@@ -151,7 +152,7 @@ impl Register {
         }
     }
 
-    pub fn is_wide(self: &Register) -> bool {
+    pub const fn is_wide(self: &Register) -> bool {
         match self {
             Register::Special(_) => true,
             Register::General(_, RegisterSubset::All) => true,
