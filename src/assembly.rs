@@ -10,9 +10,9 @@ use nom::{
 
 use crate::{
     register::{ByteRegisterSubset, GeneralRegister, Register, RegisterSubset, SpecialRegister},
-    AccumulatorToMemory, Base, EffectiveAddress, ImmediateToRegister, ImmediateToRegisterOrMemory,
-    Instruction, MemRegMove, MemoryToAccumulator, Program, RegMemMove, RegRegMove, SourceDest,
-    WithOffset,
+    AccumulatorToMemory, ArithmeticInstruction, ArithmeticInstructionSelect, ArithmeticOperation,
+    Base, EffectiveAddress, ImmediateToRegister, ImmediateToRegisterOrMemory, Instruction,
+    MemRegMove, MemoryToAccumulator, Program, RegMemMove, RegRegMove, SourceDest, WithOffset,
 };
 
 fn comment(input: &str) -> IResult<&str, &str> {
@@ -245,7 +245,7 @@ fn effective_address(input: &str) -> IResult<&str, EffectiveAddress> {
             },
         ),
         // Offset from BX
-        map_res(tag("bx"), |_| {
+        map_res(bracketed(tag("bx")), |_| {
             Ok::<_, ()>(EffectiveAddress::Bx(WithOffset::Basic(())))
         }),
         map_res(
@@ -324,19 +324,37 @@ fn mem_reg_move_instruction(input: &str) -> IResult<&str, MemRegMove> {
     )(input)
 }
 
+fn immediate_wide(input: &str) -> IResult<&str, (Register, u16)> {
+    tuple((
+        terminated(wide_register, argument_sep),
+        map_res(literal_u16, |x| Ok::<_, ()>(x)),
+    ))(input)
+}
+
+fn immediate_byte(input: &str) -> IResult<&str, (Register, u8)> {
+    tuple((
+        terminated(byte_register, argument_sep),
+        map_res(literal_u8, |x| Ok::<_, ()>(x)),
+    ))(input)
+}
+
 fn immediate_to_register_instruction(input: &str) -> IResult<&str, ImmediateToRegister> {
     map_res(
         preceded(
             tag("mov "),
             alt((
-                tuple((
-                    terminated(wide_register, argument_sep),
-                    terminated(map_res(literal_u16, |x| Ok::<_, ()>(Err(x))), line_ending),
-                )),
-                tuple((
-                    terminated(byte_register, argument_sep),
-                    terminated(map_res(literal_u8, |x| Ok::<_, ()>(Ok(x))), line_ending),
-                )),
+                terminated(
+                    map_res(immediate_wide, |(register, x)| {
+                        Ok::<_, ()>((register, Err(x)))
+                    }),
+                    line_ending,
+                ),
+                terminated(
+                    map_res(immediate_byte, |(register, x)| {
+                        Ok::<_, ()>((register, Ok(x)))
+                    }),
+                    line_ending,
+                ),
             )),
         ),
         |(register, contents)| {
@@ -359,8 +377,8 @@ fn immediate_to_memory_instruction(input: &str) -> IResult<&str, ImmediateToRegi
         tuple((
             terminated(preceded(tag("mov "), effective_address), argument_sep),
             alt((
-                map_res(literal_u8, |x| Ok::<_, ()>(Ok::<_, u16>(x))),
-                map_res(literal_u16, |x| Ok::<_, ()>(Err::<u8, _>(x))),
+                map_res(literal_u8, |x| Ok::<_, ()>(Ok(x))),
+                map_res(literal_u16, |x| Ok::<_, ()>(Err(x))),
             )),
         )),
         |(addr, x)| {
@@ -404,6 +422,155 @@ fn accumulator_to_memory_instruction(input: &str) -> IResult<&str, AccumulatorTo
     )(input)
 }
 
+fn arithmetic_op(input: &str) -> IResult<&str, ArithmeticOperation> {
+    alt((
+        map_res(tag("add"), |_| Ok::<_, ()>(ArithmeticOperation::Add)),
+        map_res(tag("sub"), |_| Ok::<_, ()>(ArithmeticOperation::Sub)),
+        map_res(tag("cmp"), |_| Ok::<_, ()>(ArithmeticOperation::Cmp)),
+        map_res(tag("acd"), |_| {
+            Ok::<_, ()>(ArithmeticOperation::AddWithCarry)
+        }),
+        map_res(tag("sbb"), |_| {
+            Ok::<_, ()>(ArithmeticOperation::SubWithBorrow)
+        }),
+        map_res(tag("and"), |_| Ok::<_, ()>(ArithmeticOperation::And)),
+        map_res(tag("xor"), |_| Ok::<_, ()>(ArithmeticOperation::Xor)),
+        map_res(tag("or"), |_| Ok::<_, ()>(ArithmeticOperation::Or)),
+    ))(input)
+}
+
+fn arithmetic_select(input: &str) -> IResult<&str, ArithmeticInstructionSelect> {
+    alt((
+        map_res(
+            preceded(
+                char('a'),
+                tuple((
+                    terminated(alt((char('l'), char('x'))), argument_sep),
+                    alt((
+                        map_res(literal_u16, |x| Ok::<_, ()>(Ok(x))),
+                        map_res(literal_u8, |x| Ok::<_, ()>(Err(x))),
+                    )),
+                )),
+            ),
+            |(which_acc, data)| match (which_acc, data) {
+                ('x', Ok(wide)) => Ok(ArithmeticInstructionSelect::ImmediateToAccWord(wide)),
+                ('l', Ok(_)) => Err(()),
+                ('x', Err(byte)) => {
+                    Ok(ArithmeticInstructionSelect::ImmediateToAccWord(byte as u16))
+                }
+                ('l', Err(byte)) => Ok(ArithmeticInstructionSelect::ImmediateToAccByte(byte)),
+                (_, _) => panic!("can't hit, bad char {}", which_acc),
+            },
+        ),
+        map_res(
+            tuple((terminated(register, argument_sep), register)),
+            |(dest, source)| {
+                Ok::<_, ()>(ArithmeticInstructionSelect::RegisterToRegister(
+                    crate::RegRegArithmetic { source, dest },
+                ))
+            },
+        ),
+        map_res(
+            tuple((terminated(register, argument_sep), effective_address)),
+            |(dest, source)| {
+                Ok::<_, ()>(ArithmeticInstructionSelect::MemoryToRegister(
+                    crate::MemRegArithmetic { source, dest },
+                ))
+            },
+        ),
+        map_res(
+            tuple((terminated(effective_address, argument_sep), register)),
+            |(dest, source)| {
+                Ok::<_, ()>(ArithmeticInstructionSelect::RegisterToMemory(
+                    crate::RegMemArithmetic { source, dest },
+                ))
+            },
+        ),
+        map_res(
+            tuple((terminated(wide_register, argument_sep), literal_u16)),
+            |(addr, literal)| {
+                // TODO: where do we find this sign
+                Ok::<_, ()>(ArithmeticInstructionSelect::ImmediateToRegisterWord(
+                    addr, literal, false,
+                ))
+            },
+        ),
+        map_res(
+            tuple((terminated(byte_register, argument_sep), literal_u8)),
+            |(addr, literal)| {
+                // TODO: where do we find this sign
+                Ok::<_, ()>(ArithmeticInstructionSelect::ImmediateToRegisterByte(
+                    addr, literal, false,
+                ))
+            },
+        ),
+        map_res(
+            tuple((
+                terminated(preceded(tag("word "), effective_address), argument_sep),
+                literal_u16,
+            )),
+            |(addr, literal)| {
+                // TODO: where do we find this sign
+                Ok::<_, ()>(
+                    ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryWord(
+                        addr, literal, false,
+                    ),
+                )
+            },
+        ),
+        map_res(
+            tuple((
+                terminated(preceded(tag("byte "), effective_address), argument_sep),
+                literal_u8,
+            )),
+            |(addr, literal)| {
+                // TODO: where do we find this sign
+                Ok::<_, ()>(
+                    ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryByte(
+                        addr, literal, false,
+                    ),
+                )
+            },
+        ),
+        map_res(
+            tuple((terminated(effective_address, argument_sep), literal_u16)),
+            |(addr, literal)| {
+                // TODO: where do we find this sign
+                Ok::<_, ()>(
+                    ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryWord(
+                        addr, literal, false,
+                    ),
+                )
+            },
+        ),
+        map_res(
+            tuple((terminated(effective_address, argument_sep), literal_u8)),
+            |(addr, literal)| {
+                // TODO: where do we find this sign
+                Ok::<_, ()>(
+                    ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryByte(
+                        addr, literal, false,
+                    ),
+                )
+            },
+        ),
+    ))(input)
+    /*
+    ImmediateToRegisterByte(Register, u8, bool),
+    ImmediateToRegisterWord(Register, u16, bool),
+     */
+}
+
+fn arithmetic_instruction(input: &str) -> IResult<&str, ArithmeticInstruction> {
+    map_res(
+        tuple((
+            terminated(arithmetic_op, char(' ')),
+            terminated(arithmetic_select, line_ending),
+        )),
+        |(op, instruction)| Ok::<_, ()>(ArithmeticInstruction { op, instruction }),
+    )(input)
+}
+
 fn instruction(input: &str) -> IResult<&str, Instruction> {
     alt((
         // This must come before MemRegMove.
@@ -428,6 +595,9 @@ fn instruction(input: &str) -> IResult<&str, Instruction> {
         }),
         map_res(immediate_to_memory_instruction, |v| {
             Ok::<_, ()>(Instruction::ImmediateToRegisterOrMemory(v))
+        }),
+        map_res(arithmetic_instruction, |v| {
+            Ok::<_, ()>(Instruction::Arithmetic(v))
         }),
     ))(input)
 }

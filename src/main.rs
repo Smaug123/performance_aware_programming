@@ -8,6 +8,7 @@ use std::{
 };
 
 use clap::Parser;
+use const_panic::concat_panic;
 use register::{ByteRegisterSubset, Register, RegisterSubset};
 
 #[derive(Eq, PartialEq, Debug)]
@@ -163,6 +164,137 @@ pub struct AccumulatorToMemory {
 }
 
 #[derive(Eq, PartialEq, Debug)]
+pub enum Jump {
+    Je,
+    Jl,
+    Jle,
+    Jb,
+    Jbe,
+    Jp,
+    Jo,
+    Js,
+    Jne,
+    Jnl,
+    Jnle,
+    Jnb,
+    Jnbe,
+    Jnp,
+    Jno,
+    Jns,
+    Loop,
+    Loopz,
+    Loopnz,
+    Jcxz,
+}
+
+impl Display for Jump {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Jump::Je => "je",
+            Jump::Jl => "jl",
+            Jump::Jle => "jle",
+            Jump::Jb => "jb",
+            Jump::Jbe => "jbe",
+            Jump::Jp => "jp",
+            Jump::Jo => "jo",
+            Jump::Js => "js",
+            Jump::Jne => "jne",
+            Jump::Jnl => "jnl",
+            Jump::Jnle => "jnle",
+            Jump::Jnb => "jnb",
+            Jump::Jnbe => "jnbe",
+            Jump::Jnp => "jnp",
+            Jump::Jno => "jno",
+            Jump::Jns => "jns",
+            Jump::Loop => "loop",
+            Jump::Loopz => "loopz",
+            Jump::Loopnz => "loopnz",
+            Jump::Jcxz => "jcxz",
+        })
+    }
+}
+
+#[derive(Eq, PartialEq, Debug, Clone, Copy)]
+pub enum ArithmeticOperation {
+    Add = 0,
+    Or = 1,
+    AddWithCarry = 2,
+    SubWithBorrow = 3,
+    And = 4,
+    Sub = 5,
+    Xor = 6,
+    Cmp = 7,
+}
+
+impl Display for ArithmeticOperation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            ArithmeticOperation::Add => "add",
+            ArithmeticOperation::Or => "or",
+            ArithmeticOperation::AddWithCarry => "adc",
+            ArithmeticOperation::SubWithBorrow => "sbb",
+            ArithmeticOperation::And => "and",
+            ArithmeticOperation::Sub => "sub",
+            ArithmeticOperation::Xor => "xor",
+            ArithmeticOperation::Cmp => "cmp",
+        })
+    }
+}
+
+impl ArithmeticOperation {
+    pub const fn of_byte(x: u8) -> ArithmeticOperation {
+        match x {
+            0 => ArithmeticOperation::Add,
+            1 => ArithmeticOperation::Or,
+            2 => ArithmeticOperation::AddWithCarry,
+            3 => ArithmeticOperation::SubWithBorrow,
+            4 => ArithmeticOperation::And,
+            5 => ArithmeticOperation::Sub,
+            6 => ArithmeticOperation::Xor,
+            7 => ArithmeticOperation::Cmp,
+            _ => concat_panic!("Unrecognised arithmetic op: {}", x),
+        }
+    }
+}
+
+#[derive(Eq, PartialEq, Debug)]
+pub struct RegRegArithmetic {
+    source: Register,
+    dest: Register,
+}
+
+#[derive(Eq, PartialEq, Debug)]
+pub struct RegMemArithmetic {
+    source: Register,
+    dest: EffectiveAddress,
+}
+
+#[derive(Eq, PartialEq, Debug)]
+pub struct MemRegArithmetic {
+    dest: Register,
+    source: EffectiveAddress,
+}
+
+#[derive(Eq, PartialEq, Debug)]
+pub enum ArithmeticInstructionSelect {
+    RegisterToRegister(RegRegArithmetic),
+    RegisterToMemory(RegMemArithmetic),
+    MemoryToRegister(MemRegArithmetic),
+    ImmediateToRegisterByte(Register, u8, bool),
+    ImmediateToRegisterWord(Register, u16, bool),
+    ImmediateToRegisterOrMemoryByte(EffectiveAddress, u8, bool),
+    ImmediateToRegisterOrMemoryWord(EffectiveAddress, u16, bool),
+    ImmediateToAccByte(u8),
+    ImmediateToAccWord(u16),
+}
+
+#[derive(Eq, PartialEq, Debug)]
+pub struct ArithmeticInstruction {
+    op: ArithmeticOperation,
+    instruction: ArithmeticInstructionSelect,
+}
+
+#[derive(Eq, PartialEq, Debug)]
 pub enum Instruction {
     /// Move a value from one register to another
     RegRegMove(RegRegMove),
@@ -178,6 +310,9 @@ pub enum Instruction {
     MemoryToAccumulator(MemoryToAccumulator),
     /// Store a value into memory from the accumulator
     AccumulatorToMemory(AccumulatorToMemory),
+    /// Perform arithmetic
+    Arithmetic(ArithmeticInstruction),
+    Jump(Jump, i8),
 }
 
 impl Display for Instruction {
@@ -213,6 +348,49 @@ impl Display for Instruction {
                 instruction.address,
                 if instruction.is_wide { 'x' } else { 'l' }
             )),
+            Instruction::Arithmetic(op) => {
+                f.write_fmt(format_args!("{} ", op.op))?;
+                match &op.instruction {
+                    ArithmeticInstructionSelect::RegisterToRegister(inst) => {
+                        f.write_fmt(format_args!("{}, {}", inst.dest, inst.source))
+                    }
+                    ArithmeticInstructionSelect::RegisterToMemory(inst) => {
+                        f.write_fmt(format_args!("{}, {}", inst.dest, inst.source))
+                    }
+                    ArithmeticInstructionSelect::MemoryToRegister(inst) => {
+                        f.write_fmt(format_args!("{}, {}", inst.dest, inst.source))
+                    }
+                    ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryByte(addr, data, _) => {
+                        f.write_fmt(format_args!("{}, {}", addr, data))
+                    }
+                    ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryWord(addr, data, _) => {
+                        f.write_fmt(format_args!("{}, {}", addr, data))
+                    }
+                    ArithmeticInstructionSelect::ImmediateToRegisterByte(addr, data, signed) => {
+                        if *signed {
+                            f.write_fmt(format_args!("{}, {} ; signed", addr, *data))
+                        } else {
+                            f.write_fmt(format_args!("{}, {}", addr, data))
+                        }
+                    }
+                    ArithmeticInstructionSelect::ImmediateToRegisterWord(addr, data, signed) => {
+                        if *signed {
+                            f.write_fmt(format_args!("{}, {} ; signed", addr, *data))
+                        } else {
+                            f.write_fmt(format_args!("{}, {}", addr, data))
+                        }
+                    }
+                    ArithmeticInstructionSelect::ImmediateToAccByte(data) => {
+                        f.write_fmt(format_args!("al, {}", data))
+                    }
+                    ArithmeticInstructionSelect::ImmediateToAccWord(data) => {
+                        f.write_fmt(format_args!("ax, {}", data))
+                    }
+                }
+            }
+            Instruction::Jump(instruction, offset) => {
+                f.write_fmt(format_args!("{} ; {}", instruction, offset))
+            }
         }
     }
 }
@@ -505,6 +683,144 @@ impl Instruction {
 
                 result
             }
+
+            Instruction::Arithmetic(instruction) => {
+                let mut result = Vec::<u8>::with_capacity(2);
+                match &instruction.instruction {
+                    ArithmeticInstructionSelect::RegisterToRegister(data) => {
+                        todo!();
+                        let (rm, is_wide) = data.dest.to_id();
+                        let d = 0;
+                        result.push(
+                            0b00000000u8
+                                + (instruction.op as u8) * 8
+                                + d * 2
+                                + if is_wide { 1 } else { 0 },
+                        );
+
+                        let mode = 0b11000000u8;
+                        match (&data.source, &data.dest) {
+                            (
+                                Register::General(source, RegisterSubset::Subset(source_subset)),
+                                Register::General(dest, RegisterSubset::Subset(dest_subset)),
+                            ) => {
+                                let dest_offset: u8 = 4 * match dest_subset {
+                                    ByteRegisterSubset::Low => 0,
+                                    ByteRegisterSubset::High => 1,
+                                };
+                                let source_offset: u8 = 4 * match source_subset {
+                                    ByteRegisterSubset::Low => 0,
+                                    ByteRegisterSubset::High => 1,
+                                };
+                                let reg: u8 = source_offset + source.to_id();
+                                result.push(mode + reg * 8 + rm);
+                            }
+                            (
+                                Register::General(source, RegisterSubset::All),
+                                Register::General(dest, RegisterSubset::All),
+                            ) => {
+                                let reg = source.to_id();
+                                result.push(mode + reg * 8 + rm);
+                            }
+                            (Register::General(_, _), Register::General(_, _)) => {
+                                panic!("Tried to add mismatched register sizes");
+                            }
+                            (Register::General(_, _), Register::Special(_)) => todo!(),
+                            (Register::Special(_), Register::General(_, _)) => todo!(),
+                            (Register::Special(_), Register::Special(_)) => todo!(),
+                        }
+                    }
+                    ArithmeticInstructionSelect::RegisterToMemory(_) => todo!(),
+                    ArithmeticInstructionSelect::MemoryToRegister(_) => todo!(),
+                    ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryByte(
+                        dest,
+                        data,
+                        signed,
+                    ) => {
+                        let sign_bit = if *signed { 1 } else { 0 };
+                        let w = 0u8;
+                        result.push(0b10000000u8 + 2 * sign_bit + w);
+                        Self::push_effective_address(&dest, instruction.op as u8, &mut result);
+                        result.push(*data);
+                    }
+                    ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryWord(
+                        dest,
+                        data,
+                        signed,
+                    ) => {
+                        let sign_bit = if *signed { 1 } else { 0 };
+                        let w = 1u8;
+                        result.push(0b10000000u8 + 2 * sign_bit + w);
+                        Self::push_effective_address(&dest, instruction.op as u8, &mut result);
+                        result.push((data % 256) as u8);
+                        result.push((data / 256) as u8);
+                    }
+                    ArithmeticInstructionSelect::ImmediateToRegisterByte(reg, data, signed) => {
+                        let sign_bit = if *signed { 1 } else { 0 };
+                        let (rm, is_wide) = Register::to_id(reg);
+                        result.push(0b10000000u8 + 2 * sign_bit + if is_wide { 1 } else { 0 });
+                        result.push(0b11000000 + (instruction.op as u8) * 8 + rm);
+                        result.push(*data);
+                    }
+                    ArithmeticInstructionSelect::ImmediateToRegisterWord(reg, data, signed) => {
+                        let sign_bit = if *signed { 1 } else { 0 };
+                        let (rm, is_wide) = Register::to_id(reg);
+                        result.push(0b10000000u8 + 2 * sign_bit + if is_wide { 1 } else { 0 });
+                        result.push(0b11000000 + (instruction.op as u8) * 8 + rm);
+                        result.push((data % 256) as u8);
+                        result.push((data / 256) as u8);
+                    }
+                    ArithmeticInstructionSelect::ImmediateToAccByte(data) => {
+                        let instruction = 0b00000100 + (instruction.op as u8) * 8;
+                        let w = 0u8;
+                        result.push(instruction + w);
+                        result.push(*data);
+                    }
+                    ArithmeticInstructionSelect::ImmediateToAccWord(data) => {
+                        let instruction = 0b00000100 + (instruction.op as u8) * 8;
+                        let w = 1u8;
+                        result.push(instruction + w);
+                        result.push((data % 256) as u8);
+                        result.push((data / 256) as u8);
+                    }
+                }
+
+                result
+            }
+
+            Instruction::Jump(instruction, offset) => {
+                let mut result = Vec::<u8>::with_capacity(2);
+
+                result.push(match instruction {
+                    Jump::Je => 0b01110100,
+                    Jump::Jl => 0b11111100,
+                    Jump::Jle => 0b01111110,
+                    Jump::Jb => 0b01110010,
+                    Jump::Jbe => 0b01110110,
+                    Jump::Jp => 0b01111010,
+                    Jump::Jo => 0b01110000,
+                    Jump::Js => 0b01111000,
+                    Jump::Jne => 0b01110101,
+                    Jump::Jnl => 0b01111101,
+                    Jump::Jnle => 0b01111111,
+                    Jump::Jnb => 0b01110011,
+                    Jump::Jnbe => 0b01110111,
+                    Jump::Jnp => 0b01111011,
+                    Jump::Jno => 0b01110001,
+                    Jump::Jns => 0b01111001,
+                    Jump::Loop => 0b11100010,
+                    Jump::Loopz => 0b11100001,
+                    Jump::Loopnz => 0b11100000,
+                    Jump::Jcxz => 0b11100011,
+                });
+
+                result.push(if *offset >= 0 {
+                    *offset as u8
+                } else {
+                    255 - (-*offset) as u8 + 1
+                });
+                result
+            }
         }
     }
 
@@ -544,7 +860,7 @@ impl Instruction {
                     (base, source_dest),
                     displacement_high,
                 )),
-                _ => panic!("Maths is wrong, got bad mode: {}", mode),
+                _ => panic!("Got bad mode: {}", mode),
             }
         } else if rm < 6 {
             match mode {
@@ -556,14 +872,14 @@ impl Instruction {
                     source_dest,
                     displacement_high,
                 )),
-                _ => panic!("Maths is wrong, got bad mode: {}", mode),
+                _ => panic!("Got bad mode: {}", mode),
             }
         } else if rm == 6 {
             match mode {
                 0 => EffectiveAddress::Direct(displacement_high),
                 1 => EffectiveAddress::BasePointer(displacement_low),
                 2 => EffectiveAddress::BasePointerWide(displacement_high),
-                _ => panic!("Maths is wrong, got bad mode: {}", mode),
+                _ => panic!("Got bad mode: {}", mode),
             }
         } else {
             assert_eq!(rm, 7);
@@ -571,7 +887,7 @@ impl Instruction {
                 0 => EffectiveAddress::Bx(WithOffset::Basic(())),
                 1 => EffectiveAddress::Bx(WithOffset::WithU8((), displacement_low)),
                 2 => EffectiveAddress::Bx(WithOffset::WithU16((), displacement_high)),
-                _ => panic!("Maths is wrong, got bad mode: {}", mode),
+                _ => panic!("Got bad mode: {}", mode),
             }
         }
     }
@@ -680,6 +996,149 @@ impl Instruction {
                         ImmediateToRegisterOrMemory::Byte(dest, data_low),
                     ))
                 }
+            } else if (b & 0b11000100) == 0b00000000u8 {
+                // Arithmetic instruction, reg/memory with register to either
+                let op = ArithmeticOperation::of_byte((b & 0b00111000u8) / 8);
+                let is_wide = b % 2 == 1;
+                let d = (b / 2) % 2;
+                let mod_reg_rm = bytes.next().unwrap();
+                let mode = (mod_reg_rm & 0b11000000) / 64;
+                let reg = Register::of_id((mod_reg_rm & 0b00111000) / 8, is_wide);
+                let rm = mod_reg_rm & 0b00000111;
+                if mode == 3 {
+                    let rm = Register::of_id(rm, is_wide);
+
+                    let (source, dest) = if d == 0 { (reg, rm) } else { (rm, reg) };
+                    Some(Instruction::Arithmetic(ArithmeticInstruction {
+                        op,
+                        instruction: ArithmeticInstructionSelect::RegisterToRegister(
+                            RegRegArithmetic { source, dest },
+                        ),
+                    }))
+                } else {
+                    let mem_location = Self::mode_rm_to_eaddr(mode, rm, bytes);
+                    if d == 0 {
+                        Some(Instruction::Arithmetic(ArithmeticInstruction {
+                            op,
+                            instruction: ArithmeticInstructionSelect::RegisterToMemory(
+                                RegMemArithmetic {
+                                    source: reg,
+                                    dest: mem_location,
+                                },
+                            ),
+                        }))
+                    } else {
+                        Some(Instruction::Arithmetic(ArithmeticInstruction {
+                            op,
+                            instruction: ArithmeticInstructionSelect::MemoryToRegister(
+                                MemRegArithmetic {
+                                    source: mem_location,
+                                    dest: reg,
+                                },
+                            ),
+                        }))
+                    }
+                }
+            } else if b & 0b11111100 == 0b10000000 {
+                // Immediate to register/memory
+                let w = b % 2;
+                let signed = (b / 2) % 2 == 1;
+                let mod_reg_rm = bytes.next().unwrap();
+                let mode = (mod_reg_rm & 0b11000000) / 64;
+                let op = ArithmeticOperation::of_byte((mod_reg_rm & 0b00111000) / 8);
+                let rm = mod_reg_rm & 0b00000111;
+                let data_low = bytes.next().unwrap();
+                if mode == 3 {
+                    let dest = Register::of_id(rm, w == 1);
+                    Some(Instruction::Arithmetic(ArithmeticInstruction {
+                        op,
+                        instruction: if w == 0 || signed {
+                            ArithmeticInstructionSelect::ImmediateToRegisterByte(
+                                dest, data_low, signed,
+                            )
+                        } else {
+                            let data = (bytes.next().unwrap() as u16) * 256 + data_low as u16;
+                            ArithmeticInstructionSelect::ImmediateToRegisterWord(dest, data, signed)
+                        },
+                    }))
+                } else {
+                    let dest = Self::mode_rm_to_eaddr(mode, rm, bytes);
+                    Some(Instruction::Arithmetic(ArithmeticInstruction {
+                        op,
+                        instruction: if w == 0 || signed {
+                            ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryByte(
+                                dest, data_low, signed,
+                            )
+                        } else {
+                            let data = (bytes.next().unwrap() as u16) * 256 + data_low as u16;
+                            ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryWord(
+                                dest, data, signed,
+                            )
+                        },
+                    }))
+                }
+            } else if b & 0b11000110u8 == 0b00000100 {
+                // Immediate to accumulator
+                let w = b % 2;
+                let data = bytes.next().unwrap();
+                let op = ArithmeticOperation::of_byte((b & 0b00111000) / 8);
+                Some(Instruction::Arithmetic(ArithmeticInstruction {
+                    op,
+                    instruction: if w == 0 {
+                        ArithmeticInstructionSelect::ImmediateToAccByte(data)
+                    } else {
+                        let data = 256 * (bytes.next().unwrap() as u16) + data as u16;
+                        ArithmeticInstructionSelect::ImmediateToAccWord(data)
+                    },
+                }))
+            } else if b & 0b11111100 == 0b11100000 {
+                // Loop
+                let next = bytes.next().unwrap();
+                let instruction = match b % 4 {
+                    0 => Jump::Loopnz,
+                    1 => Jump::Loopz,
+                    2 => Jump::Loop,
+                    3 => Jump::Jcxz,
+                    b => panic!("maths fail, {} is not a remainder mod 4", b),
+                };
+                Some(Instruction::Jump(
+                    instruction,
+                    if next >= 128 {
+                        (255 - next) as i8 - 1
+                    } else {
+                        next as i8
+                    },
+                ))
+            } else if b & 0b11110000 == 0b01110000 {
+                // Jump
+                let next = bytes.next().unwrap();
+                let instruction = match b % 16 {
+                    0 => Jump::Jo,
+                    1 => Jump::Jno,
+                    2 => Jump::Jb,
+                    3 => Jump::Jnb,
+                    4 => Jump::Je,
+                    5 => Jump::Jne,
+                    6 => Jump::Jbe,
+                    7 => Jump::Jnbe,
+                    8 => Jump::Js,
+                    9 => Jump::Jns,
+                    10 => Jump::Jp,
+                    11 => Jump::Jnp,
+                    12 => Jump::Jl,
+                    13 => Jump::Jnl,
+                    14 => Jump::Jle,
+                    15 => Jump::Jnle,
+                    b => panic!("maths fail, {} is not a remainder mod 16", b),
+                };
+                Some(Instruction::Jump(
+                    instruction,
+                    if next >= 128 {
+                        (255 - next) as i8 - 1
+                    } else {
+                        next as i8
+                    },
+                ))
             } else {
                 panic!("Unrecognised instruction byte: {}", b)
             }
@@ -735,6 +1194,7 @@ impl Program<Vec<Instruction>> {
         let mut output = Vec::new();
 
         while let Some(i) = Instruction::consume(&mut bytes) {
+            println!("{}", i);
             output.push(i);
         }
 
@@ -980,7 +1440,6 @@ mod test_program {
             include_str!("../computer_enhance/perfaware/part1/listing_0041_add_sub_cmp_jnz.asm");
         test_disassembler(asm, bytecode)
     }
-
 
     #[test]
     fn mem_reg_move_to_bytes() {

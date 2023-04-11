@@ -1,5 +1,5 @@
-use std::fmt::{Display, Write};
 use const_panic::concat_panic;
+use std::fmt::{Display, Write};
 
 #[derive(Eq, PartialEq, Debug)]
 pub enum GeneralRegister {
@@ -66,7 +66,7 @@ impl SpecialRegister {
             5 => SpecialRegister::BasePointer,
             6 => SpecialRegister::SourceIndex,
             7 => SpecialRegister::DestIndex,
-            _ => concat_panic!("bad special register ID {}", id)
+            _ => concat_panic!("bad special register ID {}", id),
         }
     }
 }
