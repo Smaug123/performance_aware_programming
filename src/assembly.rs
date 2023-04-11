@@ -1,7 +1,9 @@
 use nom::{
     branch::alt,
-    bytes::complete::tag,
-    character::complete::{char, digit1, line_ending, multispace0, not_line_ending, one_of},
+    bytes::complete::{is_not, tag},
+    character::complete::{
+        alphanumeric1, char, digit1, line_ending, multispace0, none_of, not_line_ending, one_of,
+    },
     combinator::map_res,
     multi::many0,
     sequence::{delimited, preceded, separated_pair, terminated, tuple},
@@ -11,8 +13,9 @@ use nom::{
 use crate::{
     register::{ByteRegisterSubset, GeneralRegister, Register, RegisterSubset, SpecialRegister},
     AccumulatorToMemory, ArithmeticInstruction, ArithmeticInstructionSelect, ArithmeticOperation,
-    Base, EffectiveAddress, ImmediateToRegister, ImmediateToRegisterOrMemory, Instruction,
-    MemRegMove, MemoryToAccumulator, Program, RegMemMove, RegRegMove, SourceDest, WithOffset,
+    Base, EffectiveAddress, ImmediateToRegister, ImmediateToRegisterOrMemory, Instruction, Jump,
+    MemRegMove, MemoryToAccumulator, Program, RegMemMove, RegRegMove, SourceDest,
+    TriviaInstruction, WithOffset,
 };
 
 fn comment(input: &str) -> IResult<&str, &str> {
@@ -555,10 +558,6 @@ fn arithmetic_select(input: &str) -> IResult<&str, ArithmeticInstructionSelect> 
             },
         ),
     ))(input)
-    /*
-    ImmediateToRegisterByte(Register, u8, bool),
-    ImmediateToRegisterWord(Register, u16, bool),
-     */
 }
 
 fn arithmetic_instruction(input: &str) -> IResult<&str, ArithmeticInstruction> {
@@ -571,7 +570,80 @@ fn arithmetic_instruction(input: &str) -> IResult<&str, ArithmeticInstruction> {
     )(input)
 }
 
-fn instruction(input: &str) -> IResult<&str, Instruction> {
+fn label(input: &str) -> IResult<&str, &str> {
+    terminated(is_not(":"), terminated(char(':'), line_ending))(input)
+}
+
+fn jump(input: &str) -> IResult<&str, (Jump, &str)> {
+    alt((
+        map_res(preceded(tag("je "), is_not("\n")), |label| {
+            Ok::<_, ()>((Jump::Je, label))
+        }),
+        map_res(preceded(tag("jnz "), is_not("\n")), |label| {
+            Ok::<_, ()>((Jump::Jne, label))
+        }),
+        map_res(preceded(tag("jnl "), is_not("\n")), |label| {
+            Ok::<_, ()>((Jump::Jnl, label))
+        }),
+        map_res(preceded(tag("jb "), is_not("\n")), |label| {
+            Ok::<_, ()>((Jump::Jb, label))
+        }),
+        map_res(preceded(tag("jnb "), is_not("\n")), |label| {
+            Ok::<_, ()>((Jump::Jnb, label))
+        }),
+        map_res(preceded(tag("jbe "), is_not("\n")), |label| {
+            Ok::<_, ()>((Jump::Jbe, label))
+        }),
+        map_res(preceded(tag("jl "), is_not("\n")), |label| {
+            Ok::<_, ()>((Jump::Jl, label))
+        }),
+        map_res(preceded(tag("jg "), is_not("\n")), |label| {
+            Ok::<_, ()>((Jump::Jnle, label))
+        }),
+        map_res(preceded(tag("jle "), is_not("\n")), |label| {
+            Ok::<_, ()>((Jump::Jle, label))
+        }),
+        map_res(preceded(tag("jo "), is_not("\n")), |label| {
+            Ok::<_, ()>((Jump::Jo, label))
+        }),
+        map_res(preceded(tag("jp "), is_not("\n")), |label| {
+            Ok::<_, ()>((Jump::Jp, label))
+        }),
+        map_res(preceded(tag("js "), is_not("\n")), |label| {
+            Ok::<_, ()>((Jump::Js, label))
+        }),
+        map_res(preceded(tag("ja "), is_not("\n")), |label| {
+            Ok::<_, ()>((Jump::Jnbe, label))
+        }),
+        map_res(preceded(tag("jnp "), is_not("\n")), |label| {
+            Ok::<_, ()>((Jump::Jnp, label))
+        }),
+        map_res(preceded(tag("jno "), is_not("\n")), |label| {
+            Ok::<_, ()>((Jump::Jno, label))
+        }),
+        map_res(preceded(tag("jns "), is_not("\n")), |label| {
+            Ok::<_, ()>((Jump::Jns, label))
+        }),
+        map_res(preceded(tag("loop "), is_not("\n")), |label| {
+            Ok::<_, ()>((Jump::Loop, label))
+        }),
+        map_res(preceded(tag("loopz "), is_not("\n")), |label| {
+            Ok::<_, ()>((Jump::Loopz, label))
+        }),
+        map_res(preceded(tag("loopnz "), is_not("\n")), |label| {
+            Ok::<_, ()>((Jump::Loopnz, label))
+        }),
+        map_res(preceded(tag("jcxz "), is_not("\n")), |label| {
+            Ok::<_, ()>((Jump::Jcxz, label))
+        }),
+        // a duplicate! check this
+        map_res(preceded(tag("jne "), is_not("\n")), |label| {
+            Ok::<_, ()>((Jump::Jne, label))
+        }),
+    ))(input)
+}
+
+fn instruction(input: &str) -> IResult<&str, Instruction<&str>> {
     alt((
         // This must come before MemRegMove.
         map_res(memory_to_accumulator_instruction, |v| {
@@ -599,6 +671,10 @@ fn instruction(input: &str) -> IResult<&str, Instruction> {
         map_res(arithmetic_instruction, |v| {
             Ok::<_, ()>(Instruction::Arithmetic(v))
         }),
+        map_res(jump, |(v, label)| Ok::<_, ()>(Instruction::Jump(v, label))),
+        map_res(label, |v| {
+            Ok::<_, ()>(Instruction::Trivia(TriviaInstruction::Label(v)))
+        }),
     ))(input)
 }
 
@@ -606,7 +682,7 @@ fn trivia(input: &str) -> IResult<&str, &str> {
     alt((comment, line_ending))(input)
 }
 
-pub fn program(input: &str) -> IResult<&str, Program<Vec<Instruction>>> {
+pub fn program(input: &str) -> IResult<&str, Program<Vec<Instruction<&str>>, &str>> {
     map_res(
         preceded(
             many0(trivia),
@@ -623,6 +699,7 @@ pub fn program(input: &str) -> IResult<&str, Program<Vec<Instruction>>> {
             Ok::<_, ()>(Program {
                 bits,
                 instructions: instructions.into_iter().flatten().collect(),
+                offset: std::marker::PhantomData,
             })
         },
     )(input)

@@ -2,8 +2,10 @@ mod assembly;
 mod register;
 
 use std::{
+    collections::HashMap,
     fmt::{Display, Write},
     fs,
+    marker::PhantomData,
     path::Path,
 };
 
@@ -15,6 +17,87 @@ use register::{ByteRegisterSubset, Register, RegisterSubset};
 pub struct RegRegMove {
     source: Register,
     dest: Register,
+}
+
+impl RegRegMove {
+    fn to_bytes(&self) -> Vec<u8> {
+        let mut result = Vec::with_capacity(2);
+        let instruction1 = 0b10001000u8;
+        let mut is_wide = 1u8;
+        // We always pick the 0 direction, so REG indicates the source.
+        let d: u8 = 0;
+        // Register-to-register move
+        let mode = 0b11000000u8;
+        match (&self.dest, &self.source) {
+            (
+                Register::General(dest, RegisterSubset::Subset(dest_subset)),
+                Register::General(source, RegisterSubset::Subset(source_subset)),
+            ) => {
+                is_wide = 0;
+                result.push(instruction1 + 2 * d + is_wide);
+
+                let dest_offset: u8 = 4 * match dest_subset {
+                    ByteRegisterSubset::Low => 0,
+                    ByteRegisterSubset::High => 1,
+                };
+                let rm: u8 = dest_offset + dest.to_id();
+
+                let source_offset: u8 = 4 * match source_subset {
+                    ByteRegisterSubset::Low => 0,
+                    ByteRegisterSubset::High => 1,
+                };
+                let reg: u8 = source_offset + source.to_id();
+                result.push(mode + reg * 8 + rm);
+            }
+            (
+                Register::General(dest, RegisterSubset::All),
+                Register::General(source, RegisterSubset::All),
+            ) => {
+                result.push(instruction1 + 2 * d + is_wide);
+                let reg = source.to_id();
+                let rm = dest.to_id();
+                result.push(mode + reg * 8 + rm);
+            }
+            (Register::General(dest, RegisterSubset::All), Register::Special(source)) => {
+                result.push(instruction1 + 2 * d + is_wide);
+                let reg = source.to_id();
+                let rm = dest.to_id();
+                result.push(mode + reg * 8 + rm);
+            }
+            (Register::Special(dest), Register::General(source, RegisterSubset::All)) => {
+                result.push(instruction1 + 2 * d + is_wide);
+                let reg = source.to_id();
+                let rm = dest.to_id();
+                result.push(mode + reg * 8 + rm);
+            }
+            (Register::Special(dest), Register::Special(source)) => {
+                result.push(instruction1 + 2 * d + is_wide);
+                let reg = source.to_id();
+                let rm = dest.to_id();
+                result.push(mode + reg * 8 + rm);
+            }
+            (
+                Register::General(_, RegisterSubset::Subset(_)),
+                Register::General(_, RegisterSubset::All),
+            ) => {
+                panic!("tried to move wide into narrow")
+            }
+            (Register::General(_, RegisterSubset::Subset(_)), Register::Special(_)) => {
+                panic!("tried to move wide into narrow")
+            }
+            (Register::Special(_), Register::General(_, RegisterSubset::Subset(_))) => {
+                panic!("tried to move narrow into wide")
+            }
+            (
+                Register::General(_, RegisterSubset::All),
+                Register::General(_, RegisterSubset::Subset(_)),
+            ) => {
+                panic!("tried to move narrow into wide")
+            }
+        }
+
+        result
+    }
 }
 
 #[derive(Eq, PartialEq, Debug)]
@@ -114,10 +197,84 @@ impl Display for EffectiveAddress {
     }
 }
 
+fn mode_rm_to_eaddr<I>(mode: u8, rm: u8, bytes: &mut I) -> EffectiveAddress
+where
+    I: Iterator<Item = u8>,
+{
+    let source_dest = if rm % 2 == 0 {
+        SourceDest::Source
+    } else {
+        SourceDest::Dest
+    };
+    let base = if (rm / 2) % 2 == 0 {
+        Base::Bx
+    } else {
+        Base::Bp
+    };
+    let displacement_low = if rm == 6 || mode > 0 {
+        bytes.next().expect("required an 8-bit displacement")
+    } else {
+        0
+    };
+    let displacement_high = if (rm == 6 && mode == 0) || mode == 2 {
+        let high = bytes.next().expect("required a 16-bit displacement");
+        (high as u16) * 256 + (displacement_low as u16)
+    } else {
+        0
+    };
+
+    if rm < 4 {
+        match mode {
+            0 => EffectiveAddress::Sum(WithOffset::Basic((base, source_dest))),
+            1 => EffectiveAddress::Sum(WithOffset::WithU8((base, source_dest), displacement_low)),
+            2 => EffectiveAddress::Sum(WithOffset::WithU16((base, source_dest), displacement_high)),
+            _ => panic!("Got bad mode: {}", mode),
+        }
+    } else if rm < 6 {
+        match mode {
+            0 => EffectiveAddress::SpecifiedIn(WithOffset::Basic(source_dest)),
+            1 => EffectiveAddress::SpecifiedIn(WithOffset::WithU8(source_dest, displacement_low)),
+            2 => EffectiveAddress::SpecifiedIn(WithOffset::WithU16(source_dest, displacement_high)),
+            _ => panic!("Got bad mode: {}", mode),
+        }
+    } else if rm == 6 {
+        match mode {
+            0 => EffectiveAddress::Direct(displacement_high),
+            1 => EffectiveAddress::BasePointer(displacement_low),
+            2 => EffectiveAddress::BasePointerWide(displacement_high),
+            _ => panic!("Got bad mode: {}", mode),
+        }
+    } else {
+        assert_eq!(rm, 7);
+        match mode {
+            0 => EffectiveAddress::Bx(WithOffset::Basic(())),
+            1 => EffectiveAddress::Bx(WithOffset::WithU8((), displacement_low)),
+            2 => EffectiveAddress::Bx(WithOffset::WithU16((), displacement_high)),
+            _ => panic!("Got bad mode: {}", mode),
+        }
+    }
+}
+
 #[derive(Eq, PartialEq, Debug)]
 pub struct RegMemMove {
     source: Register,
     dest: EffectiveAddress,
+}
+
+impl RegMemMove {
+    fn to_bytes(&self) -> Vec<u8> {
+        let mut result = Vec::<u8>::with_capacity(2);
+
+        let instruction1 = 0b10001000u8;
+        // Source is the register.
+        let d = 0;
+        let (source_reg, is_wide) = self.source.to_id();
+        result.push(instruction1 + 2 * d + if is_wide { 1 } else { 0 });
+
+        push_effective_address(&self.dest, source_reg, &mut result);
+
+        result
+    }
 }
 
 #[derive(Eq, PartialEq, Debug)]
@@ -126,10 +283,54 @@ pub struct MemRegMove {
     dest: Register,
 }
 
+impl MemRegMove {
+    fn to_bytes(&self) -> Vec<u8> {
+        let mut result = Vec::with_capacity(2);
+
+        let instruction1 = 0b10001000u8;
+        // Source is the effective address, so REG is the dest.
+        let d: u8 = 1;
+        let (dest_reg, is_wide) = self.dest.to_id();
+        result.push(instruction1 + 2 * d + if is_wide { 1 } else { 0 });
+
+        push_effective_address(&self.source, dest_reg, &mut result);
+
+        result
+    }
+}
+
 #[derive(Eq, PartialEq, Debug)]
 pub enum ImmediateToRegister {
     Byte(Register, u8),
     Wide(Register, u16),
+}
+
+impl ImmediateToRegister {
+    fn to_bytes(&self) -> Vec<u8> {
+        let mut result = Vec::<u8>::with_capacity(2);
+        let instruction = 0b10110000u8;
+        match self {
+            ImmediateToRegister::Byte(register, data) => {
+                let (reg, is_wide) = register.to_id();
+                if is_wide {
+                    panic!("Tried to store a byte into a word register")
+                }
+                result.push(instruction + reg);
+                result.push(*data);
+            }
+            ImmediateToRegister::Wide(register, data) => {
+                result.reserve_exact(1);
+                let (reg, is_wide) = register.to_id();
+                if !is_wide {
+                    panic!("Tried to store a word into a byte register")
+                }
+                result.push(instruction + 8 + reg);
+                result.push((data % 256) as u8);
+                result.push((data / 256) as u8);
+            }
+        }
+        result
+    }
 }
 
 impl Display for ImmediateToRegister {
@@ -151,16 +352,61 @@ pub enum ImmediateToRegisterOrMemory {
     Word(EffectiveAddress, u16),
 }
 
+impl ImmediateToRegisterOrMemory {
+    fn to_bytes(&self) -> Vec<u8> {
+        let mut result = Vec::<u8>::with_capacity(3);
+        let opcode = 0b11000110u8;
+
+        match self {
+            ImmediateToRegisterOrMemory::Byte(address, data) => {
+                result.push(opcode);
+                push_effective_address(address, 0, &mut result);
+                result.push(*data);
+            }
+            ImmediateToRegisterOrMemory::Word(address, data) => {
+                result.push(opcode + 1);
+                push_effective_address(address, 0, &mut result);
+                result.push((data % 256) as u8);
+                result.push((data / 256) as u8);
+            }
+        }
+
+        result
+    }
+}
+
 #[derive(Eq, PartialEq, Debug)]
 pub struct MemoryToAccumulator {
     address: u16,
     is_wide: bool,
 }
 
+impl MemoryToAccumulator {
+    fn to_bytes(&self) -> Vec<u8> {
+        let mut result = Vec::<u8>::with_capacity(3);
+        result.push(0b10100000u8 + if self.is_wide { 1 } else { 0 });
+        result.push((self.address % 256) as u8);
+        result.push((self.address / 256) as u8);
+
+        result
+    }
+}
+
 #[derive(Eq, PartialEq, Debug)]
 pub struct AccumulatorToMemory {
     address: u16,
     is_wide: bool,
+}
+
+impl AccumulatorToMemory {
+    fn to_bytes(&self) -> Vec<u8> {
+        let mut result = Vec::<u8>::with_capacity(3);
+        result.push(0b10100010u8 + if self.is_wide { 1 } else { 0 });
+        result.push((self.address % 256) as u8);
+        result.push((self.address / 256) as u8);
+
+        result
+    }
 }
 
 #[derive(Eq, PartialEq, Debug)]
@@ -294,8 +540,107 @@ pub struct ArithmeticInstruction {
     instruction: ArithmeticInstructionSelect,
 }
 
+impl ArithmeticInstruction {
+    fn to_bytes(&self) -> Vec<u8> {
+        let mut result = Vec::<u8>::with_capacity(2);
+        match &self.instruction {
+            ArithmeticInstructionSelect::RegisterToRegister(data) => {
+                todo!();
+                let (rm, is_wide) = data.dest.to_id();
+                let d = 0;
+                result
+                    .push(0b00000000u8 + (self.op as u8) * 8 + d * 2 + if is_wide { 1 } else { 0 });
+
+                let mode = 0b11000000u8;
+                match (&data.source, &data.dest) {
+                    (
+                        Register::General(source, RegisterSubset::Subset(source_subset)),
+                        Register::General(dest, RegisterSubset::Subset(dest_subset)),
+                    ) => {
+                        let dest_offset: u8 = 4 * match dest_subset {
+                            ByteRegisterSubset::Low => 0,
+                            ByteRegisterSubset::High => 1,
+                        };
+                        let source_offset: u8 = 4 * match source_subset {
+                            ByteRegisterSubset::Low => 0,
+                            ByteRegisterSubset::High => 1,
+                        };
+                        let reg: u8 = source_offset + source.to_id();
+                        result.push(mode + reg * 8 + rm);
+                    }
+                    (
+                        Register::General(source, RegisterSubset::All),
+                        Register::General(dest, RegisterSubset::All),
+                    ) => {
+                        let reg = source.to_id();
+                        result.push(mode + reg * 8 + rm);
+                    }
+                    (Register::General(_, _), Register::General(_, _)) => {
+                        panic!("Tried to add mismatched register sizes");
+                    }
+                    (Register::General(_, _), Register::Special(_)) => todo!(),
+                    (Register::Special(_), Register::General(_, _)) => todo!(),
+                    (Register::Special(_), Register::Special(_)) => todo!(),
+                }
+            }
+            ArithmeticInstructionSelect::RegisterToMemory(_) => todo!(),
+            ArithmeticInstructionSelect::MemoryToRegister(_) => todo!(),
+            ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryByte(dest, data, signed) => {
+                let sign_bit = if *signed { 1 } else { 0 };
+                let w = 0u8;
+                result.push(0b10000000u8 + 2 * sign_bit + w);
+                push_effective_address(&dest, self.op as u8, &mut result);
+                result.push(*data);
+            }
+            ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryWord(dest, data, signed) => {
+                let sign_bit = if *signed { 1 } else { 0 };
+                let w = 1u8;
+                result.push(0b10000000u8 + 2 * sign_bit + w);
+                push_effective_address(&dest, self.op as u8, &mut result);
+                result.push((data % 256) as u8);
+                result.push((data / 256) as u8);
+            }
+            ArithmeticInstructionSelect::ImmediateToRegisterByte(reg, data, signed) => {
+                let sign_bit = if *signed { 1 } else { 0 };
+                let (rm, is_wide) = Register::to_id(reg);
+                result.push(0b10000000u8 + 2 * sign_bit + if is_wide { 1 } else { 0 });
+                result.push(0b11000000 + (self.op as u8) * 8 + rm);
+                result.push(*data);
+            }
+            ArithmeticInstructionSelect::ImmediateToRegisterWord(reg, data, signed) => {
+                let sign_bit = if *signed { 1 } else { 0 };
+                let (rm, is_wide) = Register::to_id(reg);
+                result.push(0b10000000u8 + 2 * sign_bit + if is_wide { 1 } else { 0 });
+                result.push(0b11000000 + (self.op as u8) * 8 + rm);
+                result.push((data % 256) as u8);
+                result.push((data / 256) as u8);
+            }
+            ArithmeticInstructionSelect::ImmediateToAccByte(data) => {
+                let instruction = 0b00000100 + (self.op as u8) * 8;
+                let w = 0u8;
+                result.push(instruction + w);
+                result.push(*data);
+            }
+            ArithmeticInstructionSelect::ImmediateToAccWord(data) => {
+                let instruction = 0b00000100 + (self.op as u8) * 8;
+                let w = 1u8;
+                result.push(instruction + w);
+                result.push((data % 256) as u8);
+                result.push((data / 256) as u8);
+            }
+        }
+
+        result
+    }
+}
+
 #[derive(Eq, PartialEq, Debug)]
-pub enum Instruction {
+pub enum TriviaInstruction<InstructionOffset> {
+    Label(InstructionOffset),
+}
+
+#[derive(Eq, PartialEq, Debug)]
+pub enum Instruction<InstructionOffset> {
     /// Move a value from one register to another
     RegRegMove(RegRegMove),
     /// Store a value from a register into memory
@@ -312,10 +657,15 @@ pub enum Instruction {
     AccumulatorToMemory(AccumulatorToMemory),
     /// Perform arithmetic
     Arithmetic(ArithmeticInstruction),
-    Jump(Jump, i8),
+    Jump(Jump, InstructionOffset),
+    /// An irrelevant instruction.
+    Trivia(TriviaInstruction<InstructionOffset>),
 }
 
-impl Display for Instruction {
+impl<InstructionOffset> Display for Instruction<InstructionOffset>
+where
+    InstructionOffset: Display,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Instruction::RegRegMove(mov) => {
@@ -391,403 +741,197 @@ impl Display for Instruction {
             Instruction::Jump(instruction, offset) => {
                 f.write_fmt(format_args!("{} ; {}", instruction, offset))
             }
+            Instruction::Trivia(trivia) => match trivia {
+                TriviaInstruction::Label(l) => f.write_fmt(format_args!("{}:", l)),
+            },
         }
     }
 }
 
-impl Instruction {
-    fn push_effective_address(address: &EffectiveAddress, reg: u8, result: &mut Vec<u8>) {
-        match address {
-            EffectiveAddress::Sum(WithOffset::Basic((base, source_dest))) => {
-                let mode = 0u8;
-                let rm = match base {
-                    Base::Bx => 0u8,
-                    Base::Bp => 2,
-                } + match source_dest {
-                    SourceDest::Source => 0,
-                    SourceDest::Dest => 1,
-                };
-                result.push(mode * 64 + reg * 8 + rm);
-            }
-            EffectiveAddress::Sum(WithOffset::WithU8((base, source_dest), offset)) => {
-                result.reserve_exact(1);
-                let mode = 1u8;
-                let rm = match base {
-                    Base::Bx => 0u8,
-                    Base::Bp => 2,
-                } + match source_dest {
-                    SourceDest::Source => 0,
-                    SourceDest::Dest => 1,
-                };
-                result.push(mode * 64 + reg * 8 + rm);
-                result.push(*offset);
-            }
-            EffectiveAddress::Sum(WithOffset::WithU16((base, source_dest), offset)) => {
-                result.reserve_exact(2);
-                let mode = 2u8;
-                let rm = match base {
-                    Base::Bx => 0u8,
-                    Base::Bp => 2,
-                } + match source_dest {
-                    SourceDest::Source => 0,
-                    SourceDest::Dest => 1,
-                };
-                result.push(mode * 64 + reg * 8 + rm);
-                result.push((offset % 256) as u8);
-                result.push((offset / 256) as u8);
-            }
-            EffectiveAddress::SpecifiedIn(WithOffset::Basic(source_dest)) => {
-                let mode = 0u8;
-                let rm = match source_dest {
-                    SourceDest::Source => 4u8,
-                    SourceDest::Dest => 5,
-                };
-                result.push(mode * 64 + reg * 8 + rm);
-            }
-            EffectiveAddress::SpecifiedIn(WithOffset::WithU8(source_dest, offset)) => {
-                result.reserve_exact(1);
-                let mode = 1u8;
-                let rm = match source_dest {
-                    SourceDest::Source => 4u8,
-                    SourceDest::Dest => 5,
-                };
-                result.push(mode * 64 + reg * 8 + rm);
-                result.push(*offset);
-            }
-            EffectiveAddress::SpecifiedIn(WithOffset::WithU16(source_dest, offset)) => {
-                result.reserve_exact(2);
-                let mode = 2u8;
-                let rm = match source_dest {
-                    SourceDest::Source => 4u8,
-                    SourceDest::Dest => 5,
-                };
-                result.push(mode * 64 + reg * 8 + rm);
-                result.push((offset % 256) as u8);
-                result.push((offset / 256) as u8);
-            }
-            EffectiveAddress::Bx(WithOffset::Basic(())) => {
-                let mode = 0u8;
-                let rm = 7u8;
-                result.push(mode * 64 + reg * 8 + rm);
-            }
-            EffectiveAddress::Bx(WithOffset::WithU8((), offset)) => {
-                result.reserve_exact(1);
-                let mode = 1u8;
-                let rm = 7u8;
-                result.push(mode * 64 + reg * 8 + rm);
-                result.push(*offset);
-            }
-            EffectiveAddress::Bx(WithOffset::WithU16((), offset)) => {
-                result.reserve_exact(2);
-                let mode = 2u8;
-                let rm = 7u8;
-                result.push(mode * 64 + reg * 8 + rm);
-                result.push((offset % 256) as u8);
-                result.push((offset / 256) as u8);
-            }
-            EffectiveAddress::Direct(address) => {
-                result.reserve_exact(2);
-                let mode = 0u8;
-                let rm = 6u8;
-                result.push(mode * 64 + reg * 8 + rm);
-                result.push((address % 256) as u8);
-                result.push((address / 256) as u8);
-            }
-            EffectiveAddress::BasePointer(offset) => {
-                result.reserve_exact(1);
-                let mode = 1u8;
-                let rm = 6u8;
-                result.push(mode * 64 + reg * 8 + rm);
-                result.push(*offset);
-            }
-            EffectiveAddress::BasePointerWide(offset) => {
-                result.reserve_exact(2);
-                let mode = 2u8;
-                let rm = 6u8;
-                result.push(mode * 64 + reg * 8 + rm);
-                result.push((offset % 256) as u8);
-                result.push((offset / 256) as u8);
-            }
+fn push_effective_address(address: &EffectiveAddress, reg: u8, result: &mut Vec<u8>) {
+    match address {
+        EffectiveAddress::Sum(WithOffset::Basic((base, source_dest))) => {
+            let mode = 0u8;
+            let rm = match base {
+                Base::Bx => 0u8,
+                Base::Bp => 2,
+            } + match source_dest {
+                SourceDest::Source => 0,
+                SourceDest::Dest => 1,
+            };
+            result.push(mode * 64 + reg * 8 + rm);
+        }
+        EffectiveAddress::Sum(WithOffset::WithU8((base, source_dest), offset)) => {
+            result.reserve_exact(1);
+            let mode = 1u8;
+            let rm = match base {
+                Base::Bx => 0u8,
+                Base::Bp => 2,
+            } + match source_dest {
+                SourceDest::Source => 0,
+                SourceDest::Dest => 1,
+            };
+            result.push(mode * 64 + reg * 8 + rm);
+            result.push(*offset);
+        }
+        EffectiveAddress::Sum(WithOffset::WithU16((base, source_dest), offset)) => {
+            result.reserve_exact(2);
+            let mode = 2u8;
+            let rm = match base {
+                Base::Bx => 0u8,
+                Base::Bp => 2,
+            } + match source_dest {
+                SourceDest::Source => 0,
+                SourceDest::Dest => 1,
+            };
+            result.push(mode * 64 + reg * 8 + rm);
+            result.push((offset % 256) as u8);
+            result.push((offset / 256) as u8);
+        }
+        EffectiveAddress::SpecifiedIn(WithOffset::Basic(source_dest)) => {
+            let mode = 0u8;
+            let rm = match source_dest {
+                SourceDest::Source => 4u8,
+                SourceDest::Dest => 5,
+            };
+            result.push(mode * 64 + reg * 8 + rm);
+        }
+        EffectiveAddress::SpecifiedIn(WithOffset::WithU8(source_dest, offset)) => {
+            result.reserve_exact(1);
+            let mode = 1u8;
+            let rm = match source_dest {
+                SourceDest::Source => 4u8,
+                SourceDest::Dest => 5,
+            };
+            result.push(mode * 64 + reg * 8 + rm);
+            result.push(*offset);
+        }
+        EffectiveAddress::SpecifiedIn(WithOffset::WithU16(source_dest, offset)) => {
+            result.reserve_exact(2);
+            let mode = 2u8;
+            let rm = match source_dest {
+                SourceDest::Source => 4u8,
+                SourceDest::Dest => 5,
+            };
+            result.push(mode * 64 + reg * 8 + rm);
+            result.push((offset % 256) as u8);
+            result.push((offset / 256) as u8);
+        }
+        EffectiveAddress::Bx(WithOffset::Basic(())) => {
+            let mode = 0u8;
+            let rm = 7u8;
+            result.push(mode * 64 + reg * 8 + rm);
+        }
+        EffectiveAddress::Bx(WithOffset::WithU8((), offset)) => {
+            result.reserve_exact(1);
+            let mode = 1u8;
+            let rm = 7u8;
+            result.push(mode * 64 + reg * 8 + rm);
+            result.push(*offset);
+        }
+        EffectiveAddress::Bx(WithOffset::WithU16((), offset)) => {
+            result.reserve_exact(2);
+            let mode = 2u8;
+            let rm = 7u8;
+            result.push(mode * 64 + reg * 8 + rm);
+            result.push((offset % 256) as u8);
+            result.push((offset / 256) as u8);
+        }
+        EffectiveAddress::Direct(address) => {
+            result.reserve_exact(2);
+            let mode = 0u8;
+            let rm = 6u8;
+            result.push(mode * 64 + reg * 8 + rm);
+            result.push((address % 256) as u8);
+            result.push((address / 256) as u8);
+        }
+        EffectiveAddress::BasePointer(offset) => {
+            result.reserve_exact(1);
+            let mode = 1u8;
+            let rm = 6u8;
+            result.push(mode * 64 + reg * 8 + rm);
+            result.push(*offset);
+        }
+        EffectiveAddress::BasePointerWide(offset) => {
+            result.reserve_exact(2);
+            let mode = 2u8;
+            let rm = 6u8;
+            result.push(mode * 64 + reg * 8 + rm);
+            result.push((offset % 256) as u8);
+            result.push((offset / 256) as u8);
         }
     }
+}
 
+impl<'a> Instruction<&'a str> {
+    fn to_bytes(&self, current_instruction: usize, labels: &HashMap<&str, usize>) -> Vec<u8> {
+        match self {
+            Instruction::RegRegMove(mov) => mov.to_bytes(),
+            Instruction::RegMemMove(mov) => mov.to_bytes(),
+            Instruction::MemRegMove(mov) => mov.to_bytes(),
+            Instruction::ImmediateToRegister(mov) => mov.to_bytes(),
+            Instruction::ImmediateToRegisterOrMemory(mov) => mov.to_bytes(),
+            Instruction::MemoryToAccumulator(mov) => mov.to_bytes(),
+            Instruction::AccumulatorToMemory(mov) => mov.to_bytes(),
+            Instruction::Arithmetic(instruction) => instruction.to_bytes(),
+            Instruction::Jump(instruction, offset) => {
+                let mut result = Vec::<u8>::with_capacity(2);
+
+                result.push(match instruction {
+                    Jump::Je => 0b01110100,
+                    Jump::Jl => 0b11111100,
+                    Jump::Jle => 0b01111110,
+                    Jump::Jb => 0b01110010,
+                    Jump::Jbe => 0b01110110,
+                    Jump::Jp => 0b01111010,
+                    Jump::Jo => 0b01110000,
+                    Jump::Js => 0b01111000,
+                    Jump::Jne => 0b01110101,
+                    Jump::Jnl => 0b01111101,
+                    Jump::Jnle => 0b01111111,
+                    Jump::Jnb => 0b01110011,
+                    Jump::Jnbe => 0b01110111,
+                    Jump::Jnp => 0b01111011,
+                    Jump::Jno => 0b01110001,
+                    Jump::Jns => 0b01111001,
+                    Jump::Loop => 0b11100010,
+                    Jump::Loopz => 0b11100001,
+                    Jump::Loopnz => 0b11100000,
+                    Jump::Jcxz => 0b11100011,
+                });
+
+                let destination = match labels.get(offset) {
+                    Some(l) => *l,
+                    None => panic!("tried to jump to non-existent label: {}", offset),
+                };
+
+                if current_instruction > destination {
+                    // go back into the past
+                    let to_go_back = ((current_instruction - destination) as i8) as u8;
+                    result.push(255 - to_go_back + 1);
+                } else {
+                    // jump into the future
+                    result.push((destination - current_instruction) as u8);
+                }
+                result
+            }
+
+            Instruction::Trivia(_) => vec![],
+        }
+    }
+}
+
+impl Instruction<i8> {
     fn to_bytes(&self) -> Vec<u8> {
         match self {
-            Instruction::RegRegMove(mov) => {
-                let mut result = Vec::with_capacity(2);
-                let instruction1 = 0b10001000u8;
-                let mut is_wide = 1u8;
-                // We always pick the 0 direction, so REG indicates the source.
-                let d: u8 = 0;
-                // Register-to-register move
-                let mode = 0b11000000u8;
-                match (&mov.dest, &mov.source) {
-                    (
-                        Register::General(dest, RegisterSubset::Subset(dest_subset)),
-                        Register::General(source, RegisterSubset::Subset(source_subset)),
-                    ) => {
-                        is_wide = 0;
-                        result.push(instruction1 + 2 * d + is_wide);
-
-                        let dest_offset: u8 = 4 * match dest_subset {
-                            ByteRegisterSubset::Low => 0,
-                            ByteRegisterSubset::High => 1,
-                        };
-                        let rm: u8 = dest_offset + dest.to_id();
-
-                        let source_offset: u8 = 4 * match source_subset {
-                            ByteRegisterSubset::Low => 0,
-                            ByteRegisterSubset::High => 1,
-                        };
-                        let reg: u8 = source_offset + source.to_id();
-                        result.push(mode + reg * 8 + rm);
-                    }
-                    (
-                        Register::General(dest, RegisterSubset::All),
-                        Register::General(source, RegisterSubset::All),
-                    ) => {
-                        result.push(instruction1 + 2 * d + is_wide);
-                        let reg = source.to_id();
-                        let rm = dest.to_id();
-                        result.push(mode + reg * 8 + rm);
-                    }
-                    (Register::General(dest, RegisterSubset::All), Register::Special(source)) => {
-                        result.push(instruction1 + 2 * d + is_wide);
-                        let reg = source.to_id();
-                        let rm = dest.to_id();
-                        result.push(mode + reg * 8 + rm);
-                    }
-                    (Register::Special(dest), Register::General(source, RegisterSubset::All)) => {
-                        result.push(instruction1 + 2 * d + is_wide);
-                        let reg = source.to_id();
-                        let rm = dest.to_id();
-                        result.push(mode + reg * 8 + rm);
-                    }
-                    (Register::Special(dest), Register::Special(source)) => {
-                        result.push(instruction1 + 2 * d + is_wide);
-                        let reg = source.to_id();
-                        let rm = dest.to_id();
-                        result.push(mode + reg * 8 + rm);
-                    }
-                    (
-                        Register::General(_, RegisterSubset::Subset(_)),
-                        Register::General(_, RegisterSubset::All),
-                    ) => {
-                        panic!("tried to move wide into narrow")
-                    }
-                    (Register::General(_, RegisterSubset::Subset(_)), Register::Special(_)) => {
-                        panic!("tried to move wide into narrow")
-                    }
-                    (Register::Special(_), Register::General(_, RegisterSubset::Subset(_))) => {
-                        panic!("tried to move narrow into wide")
-                    }
-                    (
-                        Register::General(_, RegisterSubset::All),
-                        Register::General(_, RegisterSubset::Subset(_)),
-                    ) => {
-                        panic!("tried to move narrow into wide")
-                    }
-                }
-
-                result
-            }
-
-            Instruction::RegMemMove(mov) => {
-                let mut result = Vec::<u8>::with_capacity(2);
-
-                let instruction1 = 0b10001000u8;
-                // Source is the register.
-                let d = 0;
-                let (source_reg, is_wide) = mov.source.to_id();
-                result.push(instruction1 + 2 * d + if is_wide { 1 } else { 0 });
-
-                Self::push_effective_address(&mov.dest, source_reg, &mut result);
-
-                result
-            }
-            Instruction::MemRegMove(mov) => {
-                let mut result = Vec::with_capacity(2);
-
-                let instruction1 = 0b10001000u8;
-                // Source is the effective address, so REG is the dest.
-                let d: u8 = 1;
-                let (dest_reg, is_wide) = mov.dest.to_id();
-                result.push(instruction1 + 2 * d + if is_wide { 1 } else { 0 });
-
-                Self::push_effective_address(&mov.source, dest_reg, &mut result);
-
-                result
-            }
-
-            Instruction::ImmediateToRegister(mov) => {
-                let mut result = Vec::<u8>::with_capacity(2);
-                let instruction = 0b10110000u8;
-                match mov {
-                    ImmediateToRegister::Byte(register, data) => {
-                        let (reg, is_wide) = register.to_id();
-                        if is_wide {
-                            panic!("Tried to store a byte into a word register")
-                        }
-                        result.push(instruction + reg);
-                        result.push(*data);
-                    }
-                    ImmediateToRegister::Wide(register, data) => {
-                        result.reserve_exact(1);
-                        let (reg, is_wide) = register.to_id();
-                        if !is_wide {
-                            panic!("Tried to store a word into a byte register")
-                        }
-                        result.push(instruction + 8 + reg);
-                        result.push((data % 256) as u8);
-                        result.push((data / 256) as u8);
-                    }
-                }
-                result
-            }
-
-            Instruction::ImmediateToRegisterOrMemory(mov) => {
-                let mut result = Vec::<u8>::with_capacity(3);
-                let opcode = 0b11000110u8;
-
-                match mov {
-                    ImmediateToRegisterOrMemory::Byte(address, data) => {
-                        result.push(opcode);
-                        Self::push_effective_address(address, 0, &mut result);
-                        result.push(*data);
-                    }
-                    ImmediateToRegisterOrMemory::Word(address, data) => {
-                        result.push(opcode + 1);
-                        Self::push_effective_address(address, 0, &mut result);
-                        result.push((data % 256) as u8);
-                        result.push((data / 256) as u8);
-                    }
-                }
-
-                result
-            }
-
-            Instruction::MemoryToAccumulator(mov) => {
-                let mut result = Vec::<u8>::with_capacity(3);
-                result.push(0b10100000u8 + if mov.is_wide { 1 } else { 0 });
-                result.push((mov.address % 256) as u8);
-                result.push((mov.address / 256) as u8);
-
-                result
-            }
-
-            Instruction::AccumulatorToMemory(mov) => {
-                let mut result = Vec::<u8>::with_capacity(3);
-                result.push(0b10100010u8 + if mov.is_wide { 1 } else { 0 });
-                result.push((mov.address % 256) as u8);
-                result.push((mov.address / 256) as u8);
-
-                result
-            }
-
-            Instruction::Arithmetic(instruction) => {
-                let mut result = Vec::<u8>::with_capacity(2);
-                match &instruction.instruction {
-                    ArithmeticInstructionSelect::RegisterToRegister(data) => {
-                        todo!();
-                        let (rm, is_wide) = data.dest.to_id();
-                        let d = 0;
-                        result.push(
-                            0b00000000u8
-                                + (instruction.op as u8) * 8
-                                + d * 2
-                                + if is_wide { 1 } else { 0 },
-                        );
-
-                        let mode = 0b11000000u8;
-                        match (&data.source, &data.dest) {
-                            (
-                                Register::General(source, RegisterSubset::Subset(source_subset)),
-                                Register::General(dest, RegisterSubset::Subset(dest_subset)),
-                            ) => {
-                                let dest_offset: u8 = 4 * match dest_subset {
-                                    ByteRegisterSubset::Low => 0,
-                                    ByteRegisterSubset::High => 1,
-                                };
-                                let source_offset: u8 = 4 * match source_subset {
-                                    ByteRegisterSubset::Low => 0,
-                                    ByteRegisterSubset::High => 1,
-                                };
-                                let reg: u8 = source_offset + source.to_id();
-                                result.push(mode + reg * 8 + rm);
-                            }
-                            (
-                                Register::General(source, RegisterSubset::All),
-                                Register::General(dest, RegisterSubset::All),
-                            ) => {
-                                let reg = source.to_id();
-                                result.push(mode + reg * 8 + rm);
-                            }
-                            (Register::General(_, _), Register::General(_, _)) => {
-                                panic!("Tried to add mismatched register sizes");
-                            }
-                            (Register::General(_, _), Register::Special(_)) => todo!(),
-                            (Register::Special(_), Register::General(_, _)) => todo!(),
-                            (Register::Special(_), Register::Special(_)) => todo!(),
-                        }
-                    }
-                    ArithmeticInstructionSelect::RegisterToMemory(_) => todo!(),
-                    ArithmeticInstructionSelect::MemoryToRegister(_) => todo!(),
-                    ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryByte(
-                        dest,
-                        data,
-                        signed,
-                    ) => {
-                        let sign_bit = if *signed { 1 } else { 0 };
-                        let w = 0u8;
-                        result.push(0b10000000u8 + 2 * sign_bit + w);
-                        Self::push_effective_address(&dest, instruction.op as u8, &mut result);
-                        result.push(*data);
-                    }
-                    ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryWord(
-                        dest,
-                        data,
-                        signed,
-                    ) => {
-                        let sign_bit = if *signed { 1 } else { 0 };
-                        let w = 1u8;
-                        result.push(0b10000000u8 + 2 * sign_bit + w);
-                        Self::push_effective_address(&dest, instruction.op as u8, &mut result);
-                        result.push((data % 256) as u8);
-                        result.push((data / 256) as u8);
-                    }
-                    ArithmeticInstructionSelect::ImmediateToRegisterByte(reg, data, signed) => {
-                        let sign_bit = if *signed { 1 } else { 0 };
-                        let (rm, is_wide) = Register::to_id(reg);
-                        result.push(0b10000000u8 + 2 * sign_bit + if is_wide { 1 } else { 0 });
-                        result.push(0b11000000 + (instruction.op as u8) * 8 + rm);
-                        result.push(*data);
-                    }
-                    ArithmeticInstructionSelect::ImmediateToRegisterWord(reg, data, signed) => {
-                        let sign_bit = if *signed { 1 } else { 0 };
-                        let (rm, is_wide) = Register::to_id(reg);
-                        result.push(0b10000000u8 + 2 * sign_bit + if is_wide { 1 } else { 0 });
-                        result.push(0b11000000 + (instruction.op as u8) * 8 + rm);
-                        result.push((data % 256) as u8);
-                        result.push((data / 256) as u8);
-                    }
-                    ArithmeticInstructionSelect::ImmediateToAccByte(data) => {
-                        let instruction = 0b00000100 + (instruction.op as u8) * 8;
-                        let w = 0u8;
-                        result.push(instruction + w);
-                        result.push(*data);
-                    }
-                    ArithmeticInstructionSelect::ImmediateToAccWord(data) => {
-                        let instruction = 0b00000100 + (instruction.op as u8) * 8;
-                        let w = 1u8;
-                        result.push(instruction + w);
-                        result.push((data % 256) as u8);
-                        result.push((data / 256) as u8);
-                    }
-                }
-
-                result
-            }
-
+            Instruction::RegRegMove(mov) => mov.to_bytes(),
+            Instruction::RegMemMove(mov) => mov.to_bytes(),
+            Instruction::MemRegMove(mov) => mov.to_bytes(),
+            Instruction::ImmediateToRegister(mov) => mov.to_bytes(),
+            Instruction::ImmediateToRegisterOrMemory(mov) => mov.to_bytes(),
+            Instruction::MemoryToAccumulator(mov) => mov.to_bytes(),
+            Instruction::AccumulatorToMemory(mov) => mov.to_bytes(),
+            Instruction::Arithmetic(instruction) => instruction.to_bytes(),
             Instruction::Jump(instruction, offset) => {
                 let mut result = Vec::<u8>::with_capacity(2);
 
@@ -821,78 +965,12 @@ impl Instruction {
                 });
                 result
             }
+
+            Instruction::Trivia(_) => vec![],
         }
     }
 
-    fn mode_rm_to_eaddr<I>(mode: u8, rm: u8, bytes: &mut I) -> EffectiveAddress
-    where
-        I: Iterator<Item = u8>,
-    {
-        let source_dest = if rm % 2 == 0 {
-            SourceDest::Source
-        } else {
-            SourceDest::Dest
-        };
-        let base = if (rm / 2) % 2 == 0 {
-            Base::Bx
-        } else {
-            Base::Bp
-        };
-        let displacement_low = if rm == 6 || mode > 0 {
-            bytes.next().expect("required an 8-bit displacement")
-        } else {
-            0
-        };
-        let displacement_high = if (rm == 6 && mode == 0) || mode == 2 {
-            let high = bytes.next().expect("required a 16-bit displacement");
-            (high as u16) * 256 + (displacement_low as u16)
-        } else {
-            0
-        };
-
-        if rm < 4 {
-            match mode {
-                0 => EffectiveAddress::Sum(WithOffset::Basic((base, source_dest))),
-                1 => {
-                    EffectiveAddress::Sum(WithOffset::WithU8((base, source_dest), displacement_low))
-                }
-                2 => EffectiveAddress::Sum(WithOffset::WithU16(
-                    (base, source_dest),
-                    displacement_high,
-                )),
-                _ => panic!("Got bad mode: {}", mode),
-            }
-        } else if rm < 6 {
-            match mode {
-                0 => EffectiveAddress::SpecifiedIn(WithOffset::Basic(source_dest)),
-                1 => {
-                    EffectiveAddress::SpecifiedIn(WithOffset::WithU8(source_dest, displacement_low))
-                }
-                2 => EffectiveAddress::SpecifiedIn(WithOffset::WithU16(
-                    source_dest,
-                    displacement_high,
-                )),
-                _ => panic!("Got bad mode: {}", mode),
-            }
-        } else if rm == 6 {
-            match mode {
-                0 => EffectiveAddress::Direct(displacement_high),
-                1 => EffectiveAddress::BasePointer(displacement_low),
-                2 => EffectiveAddress::BasePointerWide(displacement_high),
-                _ => panic!("Got bad mode: {}", mode),
-            }
-        } else {
-            assert_eq!(rm, 7);
-            match mode {
-                0 => EffectiveAddress::Bx(WithOffset::Basic(())),
-                1 => EffectiveAddress::Bx(WithOffset::WithU8((), displacement_low)),
-                2 => EffectiveAddress::Bx(WithOffset::WithU16((), displacement_high)),
-                _ => panic!("Got bad mode: {}", mode),
-            }
-        }
-    }
-
-    fn consume<I>(bytes: &mut I) -> Option<Instruction>
+    fn consume<I>(bytes: &mut I) -> Option<Instruction<i8>>
     where
         I: Iterator<Item = u8>,
     {
@@ -922,7 +1000,7 @@ impl Instruction {
                         };
                         Some(Instruction::RegRegMove(instruction))
                     } else {
-                        let mem_location = Self::mode_rm_to_eaddr(mode, rm, bytes);
+                        let mem_location = mode_rm_to_eaddr(mode, rm, bytes);
                         if d == 0 {
                             Some(Instruction::RegMemMove(RegMemMove {
                                 source: reg,
@@ -983,7 +1061,7 @@ impl Instruction {
                 let reg = (mod_reg_rm & 0b00111000) / 8;
                 let rm = mod_reg_rm & 0b00000111;
                 assert_eq!(reg, 0);
-                let dest = Self::mode_rm_to_eaddr(mode, rm, bytes);
+                let dest = mode_rm_to_eaddr(mode, rm, bytes);
 
                 let data_low = bytes.next().unwrap();
                 if w == 1 {
@@ -1016,7 +1094,7 @@ impl Instruction {
                         ),
                     }))
                 } else {
-                    let mem_location = Self::mode_rm_to_eaddr(mode, rm, bytes);
+                    let mem_location = mode_rm_to_eaddr(mode, rm, bytes);
                     if d == 0 {
                         Some(Instruction::Arithmetic(ArithmeticInstruction {
                             op,
@@ -1062,7 +1140,7 @@ impl Instruction {
                         },
                     }))
                 } else {
-                    let dest = Self::mode_rm_to_eaddr(mode, rm, bytes);
+                    let dest = mode_rm_to_eaddr(mode, rm, bytes);
                     Some(Instruction::Arithmetic(ArithmeticInstruction {
                         op,
                         instruction: if w == 0 || signed {
@@ -1149,17 +1227,19 @@ impl Instruction {
 }
 
 #[derive(Debug, Eq, PartialEq)]
-pub struct Program<T>
+pub struct Program<T, InstructionOffset>
 where
-    T: AsRef<[Instruction]>,
+    T: AsRef<[Instruction<InstructionOffset>]>,
 {
     bits: u8,
     instructions: T,
+    offset: PhantomData<InstructionOffset>,
 }
 
-impl<T> Display for Program<T>
+impl<T, InstructionOffset> Display for Program<T, InstructionOffset>
 where
-    T: AsRef<[Instruction]>,
+    T: AsRef<[Instruction<InstructionOffset>]>,
+    InstructionOffset: Display,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!("bits {}\n", self.bits))?;
@@ -1170,9 +1250,41 @@ where
     }
 }
 
-impl<T> Program<T>
+impl<'a, T> Program<T, &'a str>
 where
-    T: AsRef<[Instruction]>,
+    T: AsRef<[Instruction<&'a str>]>,
+{
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut result = Vec::new();
+        if self.bits != 16 {
+            panic!("Only 16-bits supported");
+        }
+        let mut size = 0usize;
+        let mut labels = HashMap::new();
+        for (counter, instruction) in self.instructions.as_ref().iter().enumerate() {
+            match instruction {
+                Instruction::Trivia(TriviaInstruction::Label(s)) => {
+                    match labels.insert(*s, counter) {
+                        Some(_) => panic!("same label twice: {}", s),
+                        None => {}
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        for (counter, instruction) in self.instructions.as_ref().iter().enumerate() {
+            let new_bytes = Instruction::<&str>::to_bytes(instruction, counter, &labels);
+            result.extend(new_bytes);
+        }
+
+        result
+    }
+}
+
+impl<T> Program<T, i8>
+where
+    T: AsRef<[Instruction<i8>]>,
 {
     pub fn to_bytes(&self) -> Vec<u8> {
         if self.bits != 16 {
@@ -1181,13 +1293,13 @@ where
         self.instructions
             .as_ref()
             .iter()
-            .flat_map(Instruction::to_bytes)
+            .flat_map(Instruction::<i8>::to_bytes)
             .collect()
     }
 }
 
-impl Program<Vec<Instruction>> {
-    fn of_bytes<I>(mut bytes: I) -> Program<Vec<Instruction>>
+impl Program<Vec<Instruction<i8>>, i8> {
+    fn of_bytes<I>(mut bytes: I) -> Program<Vec<Instruction<i8>>, i8>
     where
         I: Iterator<Item = u8>,
     {
@@ -1201,6 +1313,7 @@ impl Program<Vec<Instruction>> {
         Program {
             bits: 16,
             instructions: output,
+            offset: PhantomData,
         }
     }
 }
@@ -1218,6 +1331,55 @@ struct Args {
     compiled_path: std::path::PathBuf,
     #[arg(value_name = "ASM_PATH")]
     asm_path: std::path::PathBuf,
+}
+
+fn instruction_equal_ignoring_labels<A, B>(i1: &Instruction<A>, i2: &Instruction<B>) -> bool {
+    match (i1, i2) {
+        (Instruction::RegRegMove(i1), Instruction::RegRegMove(i2)) => i1 == i2,
+        (Instruction::RegRegMove(_), _) => false,
+        (Instruction::RegMemMove(i1), Instruction::RegMemMove(i2)) => i1 == i2,
+        (Instruction::RegMemMove(_), _) => false,
+        (Instruction::MemRegMove(i1), Instruction::MemRegMove(i2)) => i1 == i2,
+        (Instruction::MemRegMove(_), _) => false,
+        (Instruction::ImmediateToRegister(i1), Instruction::ImmediateToRegister(i2)) => i1 == i2,
+        (Instruction::ImmediateToRegister(_), _) => false,
+        (
+            Instruction::ImmediateToRegisterOrMemory(i1),
+            Instruction::ImmediateToRegisterOrMemory(i2),
+        ) => i1 == i2,
+        (Instruction::ImmediateToRegisterOrMemory(_), _) => false,
+        (Instruction::MemoryToAccumulator(i1), Instruction::MemoryToAccumulator(i2)) => i1 == i2,
+        (Instruction::MemoryToAccumulator(_), _) => false,
+        (Instruction::AccumulatorToMemory(i1), Instruction::AccumulatorToMemory(i2)) => i1 == i2,
+        (Instruction::AccumulatorToMemory(_), _) => false,
+        (Instruction::Arithmetic(i1), Instruction::Arithmetic(i2)) => i1 == i2,
+        (Instruction::Arithmetic(_), _) => false,
+        (Instruction::Jump(i1, _), Instruction::Jump(i2, _)) => i1 == i2,
+        (Instruction::Jump(_, _), _) => false,
+        (Instruction::Trivia(_), Instruction::Trivia(_)) => true,
+        (Instruction::Trivia(_), _) => false,
+    }
+}
+
+fn program_equal_ignoring_labels<A, B>(
+    p1: &Program<Vec<Instruction<A>>, A>,
+    p2: &Program<Vec<Instruction<B>>, B>,
+) -> bool {
+    if p1.bits != p2.bits {
+        return false;
+    }
+
+    if p1.instructions.len() != p2.instructions.len() {
+        return false;
+    }
+
+    for (i1, i2) in p1.instructions.iter().zip(p2.instructions.iter()) {
+        if !instruction_equal_ignoring_labels(i1, i2) {
+            return false;
+        }
+    }
+
+    true
 }
 
 fn main() {
@@ -1246,7 +1408,7 @@ fn main() {
 
     let disassembled = Program::of_bytes(expected_bytecode.iter().cloned());
 
-    if disassembled != compiled {
+    if !program_equal_ignoring_labels(&disassembled, &compiled) {
         println!("Program failed to disassemble back to the compiled version. Compiled:\n{}\nDisassembled again:\n{}", compiled, disassembled);
         std::process::exit(3)
     }
@@ -1254,7 +1416,10 @@ fn main() {
 
 #[cfg(test)]
 mod test_program {
+    use std::{collections::HashMap, marker::PhantomData};
+
     use crate::{
+        instruction_equal_ignoring_labels, program_equal_ignoring_labels,
         register::{GeneralRegister, Register, RegisterSubset},
         ImmediateToRegister, Instruction, MemRegMove, Program,
     };
@@ -1263,9 +1428,10 @@ mod test_program {
 
     #[test]
     fn test_programs_with_different_instruction_sequences_are_not_equal() {
-        let program1 = Program {
+        let program1: Program<_, u8> = Program {
             bits: 64,
             instructions: vec![],
+            offset: PhantomData,
         };
         let program2 = Program {
             bits: 64,
@@ -1273,6 +1439,7 @@ mod test_program {
                 Register::General(GeneralRegister::D, RegisterSubset::All),
                 1,
             ))],
+            offset: std::marker::PhantomData,
         };
 
         assert_ne!(program1, program2);
@@ -1280,12 +1447,13 @@ mod test_program {
 
     #[test]
     fn test_programs_with_identical_instruction_sequences_are_equal() {
-        let program1 = Program {
+        let program1: Program<_, u8> = Program {
             bits: 64,
             instructions: vec![Instruction::ImmediateToRegister(ImmediateToRegister::Byte(
                 Register::General(GeneralRegister::D, RegisterSubset::All),
                 1,
             ))],
+            offset: PhantomData,
         };
         let program2 = Program {
             bits: 64,
@@ -1293,6 +1461,7 @@ mod test_program {
                 Register::General(GeneralRegister::D, RegisterSubset::All),
                 1,
             ))],
+            offset: PhantomData,
         };
 
         assert_eq!(program1, program2);
@@ -1330,16 +1499,16 @@ mod test_program {
         let (remaining, pre_compiled) = program(&input_asm).unwrap();
         assert_eq!(remaining, "");
 
-        if disassembled != pre_compiled {
+        if !program_equal_ignoring_labels(&disassembled, &pre_compiled) {
             for (theirs, ours) in disassembled
                 .instructions
                 .iter()
                 .zip(pre_compiled.instructions.iter())
             {
-                if theirs != ours {
+                if !instruction_equal_ignoring_labels(&theirs, &ours) {
                     println!(
                         "Different instruction. Ours: {ours} ({:?}). Theirs: {theirs} ({:?}).",
-                        ours.to_bytes(),
+                        ours.to_bytes(0, &HashMap::new()),
                         theirs.to_bytes()
                     );
                 }
@@ -1447,6 +1616,9 @@ mod test_program {
             source: crate::EffectiveAddress::BasePointer(0),
             dest: Register::General(GeneralRegister::D, RegisterSubset::All),
         });
-        assert_eq!(i.to_bytes(), vec![139, 86, 0]);
+        assert_eq!(
+            Instruction::<&str>::to_bytes(&i, 0, &HashMap::new()),
+            vec![139, 86, 0]
+        );
     }
 }
