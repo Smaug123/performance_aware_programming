@@ -145,12 +145,10 @@ fn absolute_u8(input: &str) -> IResult<&str, u8> {
         map_res(preceded(tag("0x"), alphanumeric1), |s: &str| {
             s.chars()
                 .map(|x| {
-                    if '0' <= x && x <= '9' {
-                        Ok(x as u8 - '0' as u8)
-                    } else if 'a' <= x && x <= 'z' {
-                        Ok(x as u8 - 'a' as u8)
-                    } else if 'A' <= x && x <= 'A' {
-                        Ok(x as u8 - 'A' as u8)
+                    if x.is_ascii_digit() {
+                        Ok(x as u8 - b'0')
+                    } else if x.is_ascii_hexdigit() {
+                        Ok(x.to_ascii_lowercase() as u8 - b'a')
                     } else {
                         Err(())
                     }
@@ -171,12 +169,10 @@ fn absolute_u16(input: &str) -> IResult<&str, u16> {
         map_res(preceded(tag("0x"), alphanumeric1), |s: &str| {
             s.chars()
                 .map(|x| {
-                    if '0' <= x && x <= '9' {
+                    if x.is_ascii_digit() {
                         Ok(x as u16 - '0' as u16)
-                    } else if 'a' <= x && x <= 'z' {
-                        Ok(x as u16 - 'a' as u16)
-                    } else if 'A' <= x && x <= 'A' {
-                        Ok(x as u16 - 'A' as u16)
+                    } else if x.is_ascii_hexdigit() {
+                        Ok(x.to_ascii_lowercase() as u16 - 'a' as u16)
                     } else {
                         Err(())
                     }
