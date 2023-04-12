@@ -856,7 +856,7 @@ fn push_effective_address(address: &EffectiveAddress, reg: u8, result: &mut Vec<
 }
 
 impl<'a> Instruction<&'a str> {
-    fn to_bytes(&self, current_instruction: usize, labels: &HashMap<&str, usize>) -> Vec<u8> {
+    fn to_bytes(&self) -> Vec<u8> {
         match self {
             Instruction::RegRegMove(mov) => mov.to_bytes(),
             Instruction::RegMemMove(mov) => mov.to_bytes(),
@@ -866,7 +866,7 @@ impl<'a> Instruction<&'a str> {
             Instruction::MemoryToAccumulator(mov) => mov.to_bytes(),
             Instruction::AccumulatorToMemory(mov) => mov.to_bytes(),
             Instruction::Arithmetic(instruction) => instruction.to_bytes(),
-            Instruction::Jump(instruction, offset) => {
+            Instruction::Jump(instruction, _) => {
                 let mut result = Vec::<u8>::with_capacity(2);
 
                 result.push(match instruction {
@@ -892,28 +892,8 @@ impl<'a> Instruction<&'a str> {
                     Jump::Jcxz => 0b11100011,
                 });
 
-                let destination = match labels.get(offset) {
-                    Some(l) => *l,
-                    None => {
-                        let mut s = String::new();
-                        for &label in labels.keys() {
-                            s = format!("{}\n|  {}", s, label);
-                        }
-                        panic!(
-                            "tried to jump to non-existent label: {}\nAvailable:\n  |{}---",
-                            offset, s
-                        )
-                    }
-                };
-
-                if current_instruction > destination {
-                    // go back into the past
-                    let to_go_back = ((current_instruction - destination) as i8) as u8;
-                    result.push(255 - to_go_back + 1);
-                } else {
-                    // jump into the future
-                    result.push((destination - current_instruction) as u8);
-                }
+                // Placeholder destination which will be filled in later
+                result.push(0);
                 result
             }
 
@@ -1268,9 +1248,29 @@ where
             }
         }
 
+        let mut instruction_boundaries = vec![0; self.instructions.as_ref().len()];
+
         for (counter, instruction) in self.instructions.as_ref().iter().enumerate() {
-            let new_bytes = Instruction::<&str>::to_bytes(instruction, counter, &labels);
+            let new_bytes = Instruction::<&str>::to_bytes(instruction);
             result.extend(new_bytes);
+            instruction_boundaries[counter] = result.len();
+        }
+
+        for (counter, instruction) in self.instructions.as_ref().iter().enumerate() {
+            if let Instruction::Jump(_, offset) = instruction {
+                let desired_target_instruction_number = match labels.get(offset) {
+                    Some(s) => *s,
+                    None => panic!("Tried to jump to label, but was not present: '{}'", offset),
+                };
+                let required_jump = instruction_boundaries[desired_target_instruction_number] as i8
+                    - instruction_boundaries[counter] as i8;
+                let required_jump = if required_jump < 0 {
+                    255 - (-required_jump as u8) + 1
+                } else {
+                    required_jump as u8
+                };
+                result[instruction_boundaries[counter] - 1] = required_jump;
+            }
         }
 
         result
@@ -1571,7 +1571,7 @@ mod test_program {
         for dis in disassembled {
             if let Some(compiled) = compiled.next() {
                 if !instruction_equal_ignoring_labels(dis, compiled) {
-                    let compiled_bytes = compiled.to_bytes(0, &HashMap::new());
+                    let compiled_bytes = compiled.to_bytes();
                     let dis_bytes = dis.to_bytes();
                     if !permit_equivalences.contains(&(compiled_bytes.clone(), dis_bytes.clone()))
                         && !permit_equivalences
@@ -1597,7 +1597,7 @@ mod test_program {
         while let Some(compiled) = compiled.next() {
             println!(
                 "Extra instruction from compilation: {compiled} ({:?})",
-                compiled.to_bytes(0, &HashMap::new())
+                compiled.to_bytes()
             );
             is_different = true;
         }
@@ -1877,9 +1877,6 @@ mod test_program {
             source: crate::EffectiveAddress::BasePointer(0),
             dest: Register::General(GeneralRegister::D, RegisterSubset::All),
         });
-        assert_eq!(
-            Instruction::<&str>::to_bytes(&i, 0, &HashMap::new()),
-            vec![139, 86, 0]
-        );
+        assert_eq!(Instruction::<&str>::to_bytes(&i), vec![139, 86, 0]);
     }
 }
