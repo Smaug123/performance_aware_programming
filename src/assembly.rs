@@ -491,9 +491,16 @@ fn arithmetic_select(input: &str) -> IResult<&str, ArithmeticInstructionSelect> 
             },
         ),
         map_res(
+            tuple((terminated(wide_register, argument_sep), literal_u8)),
+            |(addr, literal)| {
+                Ok::<_, ()>(ArithmeticInstructionSelect::ImmediateToRegisterByte(
+                    addr, literal, true,
+                ))
+            },
+        ),
+        map_res(
             tuple((terminated(wide_register, argument_sep), literal_u16)),
             |(addr, literal)| {
-                // TODO: where do we find this sign
                 Ok::<_, ()>(ArithmeticInstructionSelect::ImmediateToRegisterWord(
                     addr, literal, false,
                 ))
@@ -502,7 +509,6 @@ fn arithmetic_select(input: &str) -> IResult<&str, ArithmeticInstructionSelect> 
         map_res(
             tuple((terminated(byte_register, argument_sep), literal_u8)),
             |(addr, literal)| {
-                // TODO: where do we find this sign
                 Ok::<_, ()>(ArithmeticInstructionSelect::ImmediateToRegisterByte(
                     addr, literal, false,
                 ))
@@ -511,10 +517,22 @@ fn arithmetic_select(input: &str) -> IResult<&str, ArithmeticInstructionSelect> 
         map_res(
             tuple((
                 terminated(preceded(tag("word "), effective_address), argument_sep),
+                literal_u8,
+            )),
+            |(addr, literal)| {
+                Ok::<_, ()>(
+                    ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryByte(
+                        addr, literal, true,
+                    ),
+                )
+            },
+        ),
+        map_res(
+            tuple((
+                terminated(preceded(tag("word "), effective_address), argument_sep),
                 literal_u16,
             )),
             |(addr, literal)| {
-                // TODO: where do we find this sign
                 Ok::<_, ()>(
                     ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryWord(
                         addr, literal, false,

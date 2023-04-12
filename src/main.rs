@@ -612,7 +612,9 @@ impl ArithmeticInstruction {
                 result.push(0b10000000u8 + 2 * sign_bit + if is_wide { 1 } else { 0 });
                 result.push(0b11000000 + (self.op as u8) * 8 + rm);
                 result.push((data % 256) as u8);
-                result.push((data / 256) as u8);
+                if !*signed {
+                    result.push((data / 256) as u8);
+                }
             }
             ArithmeticInstructionSelect::ImmediateToAccByte(data) => {
                 let instruction = 0b00000100 + (self.op as u8) * 8;
@@ -717,14 +719,14 @@ where
                     }
                     ArithmeticInstructionSelect::ImmediateToRegisterByte(addr, data, signed) => {
                         if *signed {
-                            f.write_fmt(format_args!("{}, {} ; signed", addr, *data))
+                            f.write_fmt(format_args!("{}, {} ; signed byte", addr, *data))
                         } else {
                             f.write_fmt(format_args!("{}, {}", addr, data))
                         }
                     }
                     ArithmeticInstructionSelect::ImmediateToRegisterWord(addr, data, signed) => {
                         if *signed {
-                            f.write_fmt(format_args!("{}, {} ; signed", addr, *data))
+                            f.write_fmt(format_args!("{}, {} ; signed word", addr, *data))
                         } else {
                             f.write_fmt(format_args!("{}, {}", addr, data))
                         }
@@ -1118,14 +1120,17 @@ impl Instruction<i8> {
                 }
             } else if b & 0b11111100 == 0b10000000 {
                 // Immediate to register/memory
+                if (b == 130) {
+                    println!("130!!!");
+                }
                 let w = b % 2;
                 let signed = (b / 2) % 2 == 1;
                 let mod_reg_rm = bytes.next().unwrap();
                 let mode = (mod_reg_rm & 0b11000000) / 64;
                 let op = ArithmeticOperation::of_byte((mod_reg_rm & 0b00111000) / 8);
                 let rm = mod_reg_rm & 0b00000111;
-                let data_low = bytes.next().unwrap();
                 if mode == 3 {
+                    let data_low = bytes.next().unwrap();
                     let dest = Register::of_id(rm, w == 1);
                     Some(Instruction::Arithmetic(ArithmeticInstruction {
                         op,
@@ -1140,6 +1145,7 @@ impl Instruction<i8> {
                     }))
                 } else {
                     let dest = mode_rm_to_eaddr(mode, rm, bytes);
+                    let data_low = bytes.next().unwrap();
                     Some(Instruction::Arithmetic(ArithmeticInstruction {
                         op,
                         instruction: if w == 0 || signed {
