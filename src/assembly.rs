@@ -1,7 +1,9 @@
 use nom::{
     branch::alt,
     bytes::complete::{is_not, tag},
-    character::complete::{char, digit1, line_ending, multispace0, not_line_ending, one_of},
+    character::complete::{
+        alphanumeric1, char, digit1, line_ending, multispace0, not_line_ending, one_of,
+    },
     combinator::map_res,
     multi::many0,
     sequence::{delimited, preceded, separated_pair, terminated, tuple},
@@ -139,17 +141,55 @@ fn source_dest(input: &str) -> IResult<&str, SourceDest> {
 }
 
 fn absolute_u8(input: &str) -> IResult<&str, u8> {
-    map_res(
-        alt((digit1, preceded(tag("byte "), digit1))),
-        str::parse::<u8>,
-    )(input)
+    alt((
+        map_res(preceded(tag("0x"), alphanumeric1), |s: &str| {
+            s.chars()
+                .map(|x| {
+                    if '0' <= x && x <= '9' {
+                        Ok(x as u8 - '0' as u8)
+                    } else if 'a' <= x && x <= 'z' {
+                        Ok(x as u8 - 'a' as u8)
+                    } else if 'A' <= x && x <= 'A' {
+                        Ok(x as u8 - 'A' as u8)
+                    } else {
+                        Err(())
+                    }
+                })
+                .fold(Ok(0u8), |acc, new| match (acc, new) {
+                    (Ok(acc), Ok(new)) => Ok(acc * 16 + new),
+                    (_, Err(())) => Err(()),
+                    (Err(()), _) => Err(()),
+                })
+        }),
+        map_res(digit1, str::parse::<u8>),
+        map_res(preceded(tag("byte "), digit1), str::parse::<u8>),
+    ))(input)
 }
 
 fn absolute_u16(input: &str) -> IResult<&str, u16> {
-    map_res(
-        alt((digit1, preceded(tag("word "), digit1))),
-        str::parse::<u16>,
-    )(input)
+    alt((
+        map_res(preceded(tag("0x"), alphanumeric1), |s: &str| {
+            s.chars()
+                .map(|x| {
+                    if '0' <= x && x <= '9' {
+                        Ok(x as u16 - '0' as u16)
+                    } else if 'a' <= x && x <= 'z' {
+                        Ok(x as u16 - 'a' as u16)
+                    } else if 'A' <= x && x <= 'A' {
+                        Ok(x as u16 - 'A' as u16)
+                    } else {
+                        Err(())
+                    }
+                })
+                .fold(Ok(0u16), |acc, new| match (acc, new) {
+                    (Ok(acc), Ok(new)) => Ok(acc * 16 + new),
+                    (_, Err(())) => Err(()),
+                    (Err(()), _) => Err(()),
+                })
+        }),
+        map_res(digit1, str::parse::<u16>),
+        map_res(preceded(tag("word "), digit1), str::parse::<u16>),
+    ))(input)
 }
 
 fn negative_u8(input: &str) -> IResult<&str, u8> {

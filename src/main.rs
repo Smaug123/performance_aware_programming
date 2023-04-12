@@ -1740,6 +1740,7 @@ mod test_program {
     }
 
     /*
+    We have not yet implemented the segment registers, so this test can't pass.
         #[test]
         fn test_challenge_register_movs_parser() {
             let input_asm = include_str!(
