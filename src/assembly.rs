@@ -546,7 +546,6 @@ fn arithmetic_select(input: &str) -> IResult<&str, ArithmeticInstructionSelect> 
                 literal_u8,
             )),
             |(addr, literal)| {
-                // TODO: where do we find this sign
                 Ok::<_, ()>(
                     ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryByte(
                         addr, literal, false,
@@ -557,7 +556,6 @@ fn arithmetic_select(input: &str) -> IResult<&str, ArithmeticInstructionSelect> 
         map_res(
             tuple((terminated(effective_address, argument_sep), literal_u16)),
             |(addr, literal)| {
-                // TODO: where do we find this sign
                 Ok::<_, ()>(
                     ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryWord(
                         addr, literal, false,

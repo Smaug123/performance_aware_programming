@@ -1120,9 +1120,6 @@ impl Instruction<i8> {
                 }
             } else if b & 0b11111100 == 0b10000000 {
                 // Immediate to register/memory
-                if (b == 130) {
-                    println!("130!!!");
-                }
                 let w = b % 2;
                 let signed = (b / 2) % 2 == 1;
                 let mod_reg_rm = bytes.next().unwrap();
@@ -1310,7 +1307,7 @@ impl Program<Vec<Instruction<i8>>, i8> {
         let mut output = Vec::new();
 
         while let Some(i) = Instruction::consume(&mut bytes) {
-            println!("{}", i);
+            // println!("{}", i);
             output.push(i);
         }
 
@@ -1368,19 +1365,33 @@ fn instruction_equal_ignoring_labels<A, B>(i1: &Instruction<A>, i2: &Instruction
 fn program_equal_ignoring_labels<A, B>(
     p1: &Program<Vec<Instruction<A>>, A>,
     p2: &Program<Vec<Instruction<B>>, B>,
-) -> bool {
+) -> bool
+where
+    A: PartialEq,
+{
     if p1.bits != p2.bits {
         return false;
     }
 
-    if p1.instructions.len() != p2.instructions.len() {
-        return false;
+    let without_trivia_1 = p1.instructions.iter().filter(|i| match i {
+        Instruction::Trivia(_) => false,
+        _ => true,
+    });
+    let mut without_trivia_2 = p1.instructions.iter().filter(|i| match i {
+        Instruction::Trivia(_) => false,
+        _ => true,
+    });
+
+    for i1 in without_trivia_1 {
+        if let Some(i2) = without_trivia_2.next() {
+            if i1 != i2 {
+                return false;
+            }
+        }
     }
 
-    for (i1, i2) in p1.instructions.iter().zip(p2.instructions.iter()) {
-        if !instruction_equal_ignoring_labels(i1, i2) {
-            return false;
-        }
+    if let Some(_) = without_trivia_2.next() {
+        return false;
     }
 
     true
@@ -1518,24 +1529,46 @@ mod test_program {
         let (remaining, pre_compiled) = program(&input_asm).unwrap();
         assert_eq!(remaining, "");
 
-        if !program_equal_ignoring_labels(&disassembled, &pre_compiled) {
-            for (theirs, ours) in disassembled
-                .instructions
-                .iter()
-                .zip(pre_compiled.instructions.iter())
-            {
-                if !instruction_equal_ignoring_labels(&theirs, &ours) {
+        let disassembled = disassembled.instructions.iter().filter(|i| match i {
+            Instruction::Trivia(_) => false,
+            _ => true,
+        });
+        let mut compiled = pre_compiled.instructions.iter().filter(|i| match i {
+            Instruction::Trivia(_) => false,
+            _ => true,
+        });
+
+        let mut is_different = false;
+
+        for dis in disassembled {
+            if let Some(compiled) = compiled.next() {
+                if !instruction_equal_ignoring_labels(dis, compiled) {
                     println!(
-                        "Different instruction. Ours: {ours} ({:?}). Theirs: {theirs} ({:?}).",
-                        ours.to_bytes(0, &HashMap::new()),
-                        theirs.to_bytes()
+                        "Different instruction. From disassembly: {dis} ({:?}). From our compilation: {compiled} ({:?}).",
+                        compiled.to_bytes(0, &HashMap::new()),
+                        dis.to_bytes()
                     );
+                    is_different = true;
                 }
+            } else {
+                println!(
+                    "Extra instruction from disassembly: {dis} ({:?})",
+                    dis.to_bytes()
+                );
+                is_different = true;
             }
-            panic!(
-                "Failed assertion. Our disassembly:\n{}\nReference:\n{}",
-                disassembled, pre_compiled
+        }
+
+        while let Some(compiled) = compiled.next() {
+            println!(
+                "Extra instruction from compilation: {compiled} ({:?})",
+                compiled.to_bytes(0, &HashMap::new())
             );
+            is_different = true;
+        }
+
+        if is_different {
+            panic!("Disassembling input bytecode produced a different program from compiling the input asm.")
         }
     }
 
@@ -1626,6 +1659,77 @@ mod test_program {
             include_bytes!("../computer_enhance/perfaware/part1/listing_0041_add_sub_cmp_jnz");
         let asm =
             include_str!("../computer_enhance/perfaware/part1/listing_0041_add_sub_cmp_jnz.asm");
+        test_disassembler(asm, bytecode)
+    }
+
+    #[test]
+    fn test_challenge_flags_parser() {
+        let input_asm =
+            include_str!("../computer_enhance/perfaware/part1/listing_0047_challenge_flags.asm");
+        let input_bytecode =
+            include_bytes!("../computer_enhance/perfaware/part1/listing_0047_challenge_flags");
+        test_parser(input_asm, input_bytecode)
+    }
+
+    #[test]
+    fn test_challenge_flags_disassembler() {
+        let bytecode =
+            include_bytes!("../computer_enhance/perfaware/part1/listing_0047_challenge_flags");
+        let asm =
+            include_str!("../computer_enhance/perfaware/part1/listing_0047_challenge_flags.asm");
+        test_disassembler(asm, bytecode)
+    }
+
+    #[test]
+    fn test_ip_register_parser() {
+        let input_asm =
+            include_str!("../computer_enhance/perfaware/part1/listing_0048_ip_register.asm");
+        let input_bytecode =
+            include_bytes!("../computer_enhance/perfaware/part1/listing_0048_ip_register");
+        test_parser(input_asm, input_bytecode)
+    }
+
+    #[test]
+    fn test_ip_register_disassembler() {
+        let bytecode =
+            include_bytes!("../computer_enhance/perfaware/part1/listing_0048_ip_register");
+        let asm = include_str!("../computer_enhance/perfaware/part1/listing_0048_ip_register.asm");
+        test_disassembler(asm, bytecode)
+    }
+
+    #[test]
+    fn test_conditional_jumps_parser() {
+        let input_asm =
+            include_str!("../computer_enhance/perfaware/part1/listing_0049_conditional_jumps.asm");
+        let input_bytecode =
+            include_bytes!("../computer_enhance/perfaware/part1/listing_0049_conditional_jumps");
+        test_parser(input_asm, input_bytecode)
+    }
+
+    #[test]
+    fn test_conditional_jumps_disassembler() {
+        let bytecode =
+            include_bytes!("../computer_enhance/perfaware/part1/listing_0049_conditional_jumps");
+        let asm =
+            include_str!("../computer_enhance/perfaware/part1/listing_0049_conditional_jumps.asm");
+        test_disassembler(asm, bytecode)
+    }
+
+    #[test]
+    fn test_challenge_jumps_parser() {
+        let input_asm =
+            include_str!("../computer_enhance/perfaware/part1/listing_0050_challenge_jumps.asm");
+        let input_bytecode =
+            include_bytes!("../computer_enhance/perfaware/part1/listing_0050_challenge_jumps");
+        test_parser(input_asm, input_bytecode)
+    }
+
+    #[test]
+    fn test_challenge_jumps_disassembler() {
+        let bytecode =
+            include_bytes!("../computer_enhance/perfaware/part1/listing_0050_challenge_jumps");
+        let asm =
+            include_str!("../computer_enhance/perfaware/part1/listing_0050_challenge_jumps.asm");
         test_disassembler(asm, bytecode)
     }
 
