@@ -11,9 +11,23 @@ use nom::{
 };
 
 use crate::{
-    register::{ByteRegisterSubset, GeneralRegister, Register, RegisterSubset, SpecialRegister, Base, SourceDest},
+    arithmetic_instruction::{
+        ArithmeticInstruction, ArithmeticInstructionSelect, ArithmeticOperation, MemRegArithmetic,
+        RegMemArithmetic, RegRegArithmetic,
+    },
     effective_address::{EffectiveAddress, WithOffset},
-    move_instruction::{RegRegMove, RegMemMove, MemRegMove, ImmediateToRegister, ImmediateToRegisterOrMemory, MemoryToAccumulator, AccumulatorToMemory, MoveInstruction}, arithmetic_instruction::{ArithmeticOperation, ArithmeticInstructionSelect, RegMemArithmetic, MemRegArithmetic, RegRegArithmetic, ArithmeticInstruction}, jump_instruction::Jump, trivia_instruction::TriviaInstruction, program::Program, instruction::Instruction,
+    instruction::Instruction,
+    jump_instruction::Jump,
+    move_instruction::{
+        AccumulatorToMemory, ImmediateToRegister, ImmediateToRegisterOrMemory, MemRegMove,
+        MemoryToAccumulator, MoveInstruction, RegMemMove, RegRegMove,
+    },
+    program::Program,
+    register::{
+        Base, ByteRegisterSubset, GeneralRegister, Register, RegisterSubset, SourceDest,
+        SpecialRegister,
+    },
+    trivia_instruction::TriviaInstruction,
 };
 
 fn comment(input: &str) -> IResult<&str, &str> {
@@ -692,7 +706,7 @@ fn jump(input: &str) -> IResult<&str, (Jump, &str)> {
 }
 
 fn move_instruction(input: &str) -> IResult<&str, MoveInstruction> {
-alt((
+    alt((
         // This must come before MemRegMove.
         map_res(memory_to_accumulator_instruction, |v| {
             Ok::<_, ()>(MoveInstruction::MemoryToAccumulator(v))
@@ -715,13 +729,13 @@ alt((
         }),
         map_res(immediate_to_memory_instruction, |v| {
             Ok::<_, ()>(MoveInstruction::ImmediateToRegisterOrMemory(v))
-        })
+        }),
     ))(input)
 }
 
 fn instruction(input: &str) -> IResult<&str, Instruction<&str>> {
     alt((
-        map_res(move_instruction, |v| { Ok::<_, ()>(Instruction::Move(v))}),
+        map_res(move_instruction, |v| Ok::<_, ()>(Instruction::Move(v))),
         map_res(arithmetic_instruction, |v| {
             Ok::<_, ()>(Instruction::Arithmetic(v))
         }),

@@ -1,6 +1,19 @@
 use std::fmt::Display;
 
-use crate::{move_instruction::{MoveInstruction, RegRegMove, RegMemMove, ImmediateToRegister, MemoryToAccumulator, AccumulatorToMemory, ImmediateToRegisterOrMemory, MemRegMove}, arithmetic_instruction::{ArithmeticInstruction, ArithmeticInstructionSelect, ArithmeticOperation, RegMemArithmetic, RegRegArithmetic, MemRegArithmetic}, jump_instruction::Jump, trivia_instruction::TriviaInstruction, register::Register, effective_address::EffectiveAddress};
+use crate::{
+    arithmetic_instruction::{
+        ArithmeticInstruction, ArithmeticInstructionSelect, ArithmeticOperation, MemRegArithmetic,
+        RegMemArithmetic, RegRegArithmetic,
+    },
+    effective_address::EffectiveAddress,
+    jump_instruction::Jump,
+    move_instruction::{
+        AccumulatorToMemory, ImmediateToRegister, ImmediateToRegisterOrMemory, MemRegMove,
+        MemoryToAccumulator, MoveInstruction, RegMemMove, RegRegMove,
+    },
+    register::Register,
+    trivia_instruction::TriviaInstruction,
+};
 
 #[derive(Eq, PartialEq, Debug, Hash, Clone)]
 pub enum Instruction<InstructionOffset> {
@@ -18,9 +31,7 @@ where
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Instruction::Move(instruction) => {
-                f.write_fmt(format_args!("{}", instruction))
-            }
+            Instruction::Move(instruction) => f.write_fmt(format_args!("{}", instruction)),
             Instruction::Arithmetic(op) => {
                 f.write_fmt(format_args!("{} ", op.op))?;
                 match &op.instruction {
@@ -207,35 +218,38 @@ impl Instruction<i8> {
                     let reg = Register::of_id(b % 8, true);
                     let next_low = bytes.next().unwrap() as u16;
                     let next_high = bytes.next().unwrap() as u16;
-                    Some(Instruction::Move(MoveInstruction::ImmediateToRegister(ImmediateToRegister::Wide(
-                        reg,
-                        next_low + 256 * next_high,
-                    ))))
+                    Some(Instruction::Move(MoveInstruction::ImmediateToRegister(
+                        ImmediateToRegister::Wide(reg, next_low + 256 * next_high),
+                    )))
                 } else {
                     let reg = Register::of_id(b % 8, false);
                     let next_low = bytes.next().unwrap();
-                    Some(Instruction::Move(MoveInstruction::ImmediateToRegister(ImmediateToRegister::Byte(
-                        reg, next_low,
-                    ))))
+                    Some(Instruction::Move(MoveInstruction::ImmediateToRegister(
+                        ImmediateToRegister::Byte(reg, next_low),
+                    )))
                 }
             } else if (b & 0b11111110) == 0b10100000 {
                 // Memory to accumulator
                 let w = b % 2;
                 let addr_low = bytes.next().unwrap() as u16;
                 let addr_high = bytes.next().unwrap() as u16 * 256;
-                Some(Instruction::Move(MoveInstruction::MemoryToAccumulator(MemoryToAccumulator {
-                    address: addr_high + addr_low,
-                    is_wide: w == 1,
-                })))
+                Some(Instruction::Move(MoveInstruction::MemoryToAccumulator(
+                    MemoryToAccumulator {
+                        address: addr_high + addr_low,
+                        is_wide: w == 1,
+                    },
+                )))
             } else if (b & 0b11111110) == 0b10100010 {
                 // Accumulator to memory
                 let w = b % 2;
                 let addr_low = bytes.next().unwrap() as u16;
                 let addr_high = bytes.next().unwrap() as u16 * 256;
-                Some(Instruction::Move(MoveInstruction::AccumulatorToMemory(AccumulatorToMemory {
-                    address: addr_high + addr_low,
-                    is_wide: w == 1,
-                })))
+                Some(Instruction::Move(MoveInstruction::AccumulatorToMemory(
+                    AccumulatorToMemory {
+                        address: addr_high + addr_low,
+                        is_wide: w == 1,
+                    },
+                )))
             } else if (b & 0b11111110) == 0b11000110 {
                 // Immediate to register/memory
                 let w = b % 2;
@@ -249,13 +263,17 @@ impl Instruction<i8> {
                 let data_low = bytes.next().unwrap();
                 if w == 1 {
                     let data_high = bytes.next().unwrap() as u16 * 256;
-                    Some(Instruction::Move(MoveInstruction::ImmediateToRegisterOrMemory(
-                        ImmediateToRegisterOrMemory::Word(dest, data_high + data_low as u16),
-                    )))
+                    Some(Instruction::Move(
+                        MoveInstruction::ImmediateToRegisterOrMemory(
+                            ImmediateToRegisterOrMemory::Word(dest, data_high + data_low as u16),
+                        ),
+                    ))
                 } else {
-                    Some(Instruction::Move(MoveInstruction::ImmediateToRegisterOrMemory(
-                        ImmediateToRegisterOrMemory::Byte(dest, data_low),
-                    )))
+                    Some(Instruction::Move(
+                        MoveInstruction::ImmediateToRegisterOrMemory(
+                            ImmediateToRegisterOrMemory::Byte(dest, data_low),
+                        ),
+                    ))
                 }
             } else if (b & 0b11000100) == 0b00000000u8 {
                 // Arithmetic instruction, reg/memory with register to either

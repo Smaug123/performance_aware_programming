@@ -1,7 +1,9 @@
 use std::fmt::Display;
 
-use crate::{register::{Register, RegisterSubset, ByteRegisterSubset}, effective_address::EffectiveAddress};
-
+use crate::{
+    effective_address::EffectiveAddress,
+    register::{ByteRegisterSubset, Register, RegisterSubset},
+};
 
 #[derive(Eq, PartialEq, Debug, Hash, Clone)]
 pub struct RegRegMove {
@@ -244,7 +246,6 @@ impl AccumulatorToMemory {
     }
 }
 
-
 #[derive(Eq, PartialEq, Debug, Hash, Clone)]
 pub enum MoveInstruction {
     /// Move a value from one register to another
@@ -316,7 +317,12 @@ impl MoveInstruction {
 
 #[cfg(test)]
 mod test_move_instruction {
-    use crate::{move_instruction::{MoveInstruction, MemRegMove}, register::{RegisterSubset, GeneralRegister, Register}, instruction::Instruction, effective_address::EffectiveAddress};
+    use crate::{
+        effective_address::EffectiveAddress,
+        instruction::Instruction,
+        move_instruction::{MemRegMove, MoveInstruction},
+        register::{GeneralRegister, Register, RegisterSubset},
+    };
 
     #[test]
     fn mem_reg_move_to_bytes() {

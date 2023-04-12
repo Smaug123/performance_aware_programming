@@ -1,7 +1,4 @@
-use std::{
-    fs,
-    path::Path,
-};
+use std::{fs, path::Path};
 
 use clap::Parser;
 use sim_8086::instruction::Instruction;

@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, fmt::Display, collections::HashMap};
+use std::{collections::HashMap, fmt::Display, marker::PhantomData};
 
 use crate::{instruction::Instruction, trivia_instruction::TriviaInstruction};
 

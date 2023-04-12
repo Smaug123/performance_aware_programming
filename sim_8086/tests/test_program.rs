@@ -5,7 +5,16 @@ mod test_program {
         marker::PhantomData,
     };
 
-    use sim_8086::{instruction::Instruction, program::Program, register::{GeneralRegister, RegisterSubset, Register}, move_instruction::{ImmediateToRegister, MoveInstruction}, assembly, arithmetic_instruction::{ArithmeticOperation, ArithmeticInstructionSelect, ArithmeticInstruction}};
+    use sim_8086::{
+        arithmetic_instruction::{
+            ArithmeticInstruction, ArithmeticInstructionSelect, ArithmeticOperation,
+        },
+        assembly,
+        instruction::Instruction,
+        move_instruction::{ImmediateToRegister, MoveInstruction},
+        program::Program,
+        register::{GeneralRegister, Register, RegisterSubset},
+    };
 
     fn instruction_equal_ignoring_labels<A, B>(i1: &Instruction<A>, i2: &Instruction<B>) -> bool {
         match (i1, i2) {
@@ -29,10 +38,12 @@ mod test_program {
         };
         let program2 = Program {
             bits: 64,
-            instructions: vec![Instruction::Move(MoveInstruction::ImmediateToRegister(ImmediateToRegister::Byte(
-                Register::General(GeneralRegister::D, RegisterSubset::All),
-                1,
-            )))],
+            instructions: vec![Instruction::Move(MoveInstruction::ImmediateToRegister(
+                ImmediateToRegister::Byte(
+                    Register::General(GeneralRegister::D, RegisterSubset::All),
+                    1,
+                ),
+            ))],
             offset: std::marker::PhantomData,
         };
 
@@ -43,18 +54,22 @@ mod test_program {
     fn test_programs_with_identical_instruction_sequences_are_equal() {
         let program1: Program<_, u8> = Program {
             bits: 64,
-            instructions: vec![Instruction::Move(MoveInstruction::ImmediateToRegister(ImmediateToRegister::Byte(
-                Register::General(GeneralRegister::D, RegisterSubset::All),
-                1,
-            )))],
+            instructions: vec![Instruction::Move(MoveInstruction::ImmediateToRegister(
+                ImmediateToRegister::Byte(
+                    Register::General(GeneralRegister::D, RegisterSubset::All),
+                    1,
+                ),
+            ))],
             offset: PhantomData,
         };
         let program2 = Program {
             bits: 64,
-            instructions: vec![Instruction::Move(MoveInstruction::ImmediateToRegister(ImmediateToRegister::Byte(
-                Register::General(GeneralRegister::D, RegisterSubset::All),
-                1,
-            )))],
+            instructions: vec![Instruction::Move(MoveInstruction::ImmediateToRegister(
+                ImmediateToRegister::Byte(
+                    Register::General(GeneralRegister::D, RegisterSubset::All),
+                    1,
+                ),
+            ))],
             offset: PhantomData,
         };
 
@@ -184,15 +199,17 @@ mod test_program {
         let input_asm = include_str!(
             "../../computer_enhance/perfaware/part1/listing_0037_single_register_mov.asm"
         );
-        let input_bytecode =
-            include_bytes!("../../computer_enhance/perfaware/part1/listing_0037_single_register_mov");
+        let input_bytecode = include_bytes!(
+            "../../computer_enhance/perfaware/part1/listing_0037_single_register_mov"
+        );
         test_parser(input_asm, input_bytecode)
     }
 
     #[test]
     fn test_register_register_mov_disassembler() {
-        let bytecode =
-            include_bytes!("../../computer_enhance/perfaware/part1/listing_0037_single_register_mov");
+        let bytecode = include_bytes!(
+            "../../computer_enhance/perfaware/part1/listing_0037_single_register_mov"
+        );
         let asm = include_str!(
             "../../computer_enhance/perfaware/part1/listing_0037_single_register_mov.asm"
         );
@@ -201,8 +218,9 @@ mod test_program {
 
     #[test]
     fn test_register_register_many_mov_parser() {
-        let input_asm =
-            include_str!("../../computer_enhance/perfaware/part1/listing_0038_many_register_mov.asm");
+        let input_asm = include_str!(
+            "../../computer_enhance/perfaware/part1/listing_0038_many_register_mov.asm"
+        );
         let input_bytecode =
             include_bytes!("../../computer_enhance/perfaware/part1/listing_0038_many_register_mov");
         test_parser(input_asm, input_bytecode)
@@ -212,8 +230,9 @@ mod test_program {
     fn test_register_register_many_mov_disassembler() {
         let bytecode =
             include_bytes!("../../computer_enhance/perfaware/part1/listing_0038_many_register_mov");
-        let asm =
-            include_str!("../../computer_enhance/perfaware/part1/listing_0038_many_register_mov.asm");
+        let asm = include_str!(
+            "../../computer_enhance/perfaware/part1/listing_0038_many_register_mov.asm"
+        );
         test_disassembler(asm, bytecode)
     }
 
@@ -228,7 +247,8 @@ mod test_program {
 
     #[test]
     fn test_register_more_mov_disassembler() {
-        let bytecode = include_bytes!("../../computer_enhance/perfaware/part1/listing_0039_more_movs");
+        let bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0039_more_movs");
         let asm = include_str!("../../computer_enhance/perfaware/part1/listing_0039_more_movs.asm");
         test_disassembler(asm, bytecode)
     }
@@ -343,7 +363,8 @@ mod test_program {
     fn test_add_sub_cmp_disassembler() {
         let bytecode =
             include_bytes!("../../computer_enhance/perfaware/part1/listing_0046_add_sub_cmp");
-        let asm = include_str!("../../computer_enhance/perfaware/part1/listing_0046_add_sub_cmp.asm");
+        let asm =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0046_add_sub_cmp.asm");
         test_disassembler(asm, bytecode)
     }
 
@@ -378,14 +399,16 @@ mod test_program {
     fn test_ip_register_disassembler() {
         let bytecode =
             include_bytes!("../../computer_enhance/perfaware/part1/listing_0048_ip_register");
-        let asm = include_str!("../../computer_enhance/perfaware/part1/listing_0048_ip_register.asm");
+        let asm =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0048_ip_register.asm");
         test_disassembler(asm, bytecode)
     }
 
     #[test]
     fn test_conditional_jumps_parser() {
-        let input_asm =
-            include_str!("../../computer_enhance/perfaware/part1/listing_0049_conditional_jumps.asm");
+        let input_asm = include_str!(
+            "../../computer_enhance/perfaware/part1/listing_0049_conditional_jumps.asm"
+        );
         let input_bytecode =
             include_bytes!("../../computer_enhance/perfaware/part1/listing_0049_conditional_jumps");
         test_parser(input_asm, input_bytecode)
@@ -395,8 +418,9 @@ mod test_program {
     fn test_conditional_jumps_disassembler() {
         let bytecode =
             include_bytes!("../../computer_enhance/perfaware/part1/listing_0049_conditional_jumps");
-        let asm =
-            include_str!("../../computer_enhance/perfaware/part1/listing_0049_conditional_jumps.asm");
+        let asm = include_str!(
+            "../../computer_enhance/perfaware/part1/listing_0049_conditional_jumps.asm"
+        );
         test_disassembler(asm, bytecode)
     }
 
@@ -436,5 +460,4 @@ mod test_program {
         allowed.insert((vec![5, 1, 0], vec![131, 192, 1]));
         test_disassembler_lax(asm, bytecode, allowed)
     }
-
 }
