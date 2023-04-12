@@ -160,3 +160,33 @@ impl Register {
         }
     }
 }
+
+#[derive(Eq, PartialEq, Debug, Hash, Clone)]
+pub enum SourceDest {
+    Source,
+    Dest,
+}
+
+impl Display for SourceDest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SourceDest::Source => f.write_char('s'),
+            SourceDest::Dest => f.write_char('d'),
+        }
+    }
+}
+
+#[derive(Eq, PartialEq, Debug, Hash, Clone)]
+pub enum Base {
+    Bx,
+    Bp,
+}
+
+impl Display for Base {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Base::Bx => f.write_str("bx"),
+            Base::Bp => f.write_str("bp"),
+        }
+    }
+}

@@ -11,11 +11,23 @@ use nom::{
 };
 
 use crate::{
-    register::{ByteRegisterSubset, GeneralRegister, Register, RegisterSubset, SpecialRegister},
-    AccumulatorToMemory, ArithmeticInstruction, ArithmeticInstructionSelect, ArithmeticOperation,
-    Base, EffectiveAddress, ImmediateToRegister, ImmediateToRegisterOrMemory, Instruction, Jump,
-    MemRegMove, MemoryToAccumulator, Program, RegMemMove, RegRegMove, SourceDest,
-    TriviaInstruction, WithOffset,
+    arithmetic_instruction::{
+        ArithmeticInstruction, ArithmeticInstructionSelect, ArithmeticOperation, MemRegArithmetic,
+        RegMemArithmetic, RegRegArithmetic,
+    },
+    effective_address::{EffectiveAddress, WithOffset},
+    instruction::Instruction,
+    jump_instruction::Jump,
+    move_instruction::{
+        AccumulatorToMemory, ImmediateToRegister, ImmediateToRegisterOrMemory, MemRegMove,
+        MemoryToAccumulator, MoveInstruction, RegMemMove, RegRegMove,
+    },
+    program::Program,
+    register::{
+        Base, ByteRegisterSubset, GeneralRegister, Register, RegisterSubset, SourceDest,
+        SpecialRegister,
+    },
+    trivia_instruction::TriviaInstruction,
 };
 
 fn comment(input: &str) -> IResult<&str, &str> {
@@ -504,7 +516,7 @@ fn arithmetic_select(input: &str) -> IResult<&str, ArithmeticInstructionSelect> 
             tuple((terminated(register, argument_sep), register)),
             |(dest, source)| {
                 Ok::<_, ()>(ArithmeticInstructionSelect::RegisterToRegister(
-                    crate::RegRegArithmetic { source, dest },
+                    RegRegArithmetic { source, dest },
                 ))
             },
         ),
@@ -512,7 +524,7 @@ fn arithmetic_select(input: &str) -> IResult<&str, ArithmeticInstructionSelect> 
             tuple((terminated(register, argument_sep), effective_address)),
             |(dest, source)| {
                 Ok::<_, ()>(ArithmeticInstructionSelect::MemoryToRegister(
-                    crate::MemRegArithmetic { source, dest },
+                    MemRegArithmetic { source, dest },
                 ))
             },
         ),
@@ -520,7 +532,7 @@ fn arithmetic_select(input: &str) -> IResult<&str, ArithmeticInstructionSelect> 
             tuple((terminated(effective_address, argument_sep), register)),
             |(dest, source)| {
                 Ok::<_, ()>(ArithmeticInstructionSelect::RegisterToMemory(
-                    crate::RegMemArithmetic { source, dest },
+                    RegMemArithmetic { source, dest },
                 ))
             },
         ),
@@ -693,31 +705,37 @@ fn jump(input: &str) -> IResult<&str, (Jump, &str)> {
     ))(input)
 }
 
-fn instruction(input: &str) -> IResult<&str, Instruction<&str>> {
+fn move_instruction(input: &str) -> IResult<&str, MoveInstruction> {
     alt((
         // This must come before MemRegMove.
         map_res(memory_to_accumulator_instruction, |v| {
-            Ok::<_, ()>(Instruction::MemoryToAccumulator(v))
+            Ok::<_, ()>(MoveInstruction::MemoryToAccumulator(v))
         }),
         // This must come before RegMemMove.
         map_res(accumulator_to_memory_instruction, |v| {
-            Ok::<_, ()>(Instruction::AccumulatorToMemory(v))
+            Ok::<_, ()>(MoveInstruction::AccumulatorToMemory(v))
         }),
         map_res(reg_reg_move_instruction, |v| {
-            Ok::<_, ()>(Instruction::RegRegMove(v))
+            Ok::<_, ()>(MoveInstruction::RegRegMove(v))
         }),
         map_res(reg_mem_move_instruction, |v| {
-            Ok::<_, ()>(Instruction::RegMemMove(v))
+            Ok::<_, ()>(MoveInstruction::RegMemMove(v))
         }),
         map_res(mem_reg_move_instruction, |v| {
-            Ok::<_, ()>(Instruction::MemRegMove(v))
+            Ok::<_, ()>(MoveInstruction::MemRegMove(v))
         }),
         map_res(immediate_to_register_instruction, |v| {
-            Ok::<_, ()>(Instruction::ImmediateToRegister(v))
+            Ok::<_, ()>(MoveInstruction::ImmediateToRegister(v))
         }),
         map_res(immediate_to_memory_instruction, |v| {
-            Ok::<_, ()>(Instruction::ImmediateToRegisterOrMemory(v))
+            Ok::<_, ()>(MoveInstruction::ImmediateToRegisterOrMemory(v))
         }),
+    ))(input)
+}
+
+fn instruction(input: &str) -> IResult<&str, Instruction<&str>> {
+    alt((
+        map_res(move_instruction, |v| Ok::<_, ()>(Instruction::Move(v))),
         map_res(arithmetic_instruction, |v| {
             Ok::<_, ()>(Instruction::Arithmetic(v))
         }),
