@@ -1,0 +1,9 @@
+pub mod assembly;
+pub mod register;
+pub mod effective_address;
+pub mod jump_instruction;
+pub mod move_instruction;
+pub mod arithmetic_instruction;
+pub mod instruction;
+pub mod trivia_instruction;
+pub mod program;
