@@ -532,9 +532,7 @@ fn arithmetic_select(input: &str) -> IResult<&str, ArithmeticInstructionSelect> 
             )),
             |(addr, literal)| {
                 Ok::<_, ()>(
-                    ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryWord(
-                        addr, literal, false,
-                    ),
+                    ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryWord(addr, literal),
                 )
             },
         ),
@@ -555,16 +553,13 @@ fn arithmetic_select(input: &str) -> IResult<&str, ArithmeticInstructionSelect> 
             tuple((terminated(effective_address, argument_sep), literal_u16)),
             |(addr, literal)| {
                 Ok::<_, ()>(
-                    ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryWord(
-                        addr, literal, false,
-                    ),
+                    ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryWord(addr, literal),
                 )
             },
         ),
         map_res(
             tuple((terminated(effective_address, argument_sep), literal_u8)),
             |(addr, literal)| {
-                // TODO: where do we find this sign
                 Ok::<_, ()>(
                     ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryByte(
                         addr, literal, false,
@@ -586,7 +581,7 @@ fn arithmetic_instruction(input: &str) -> IResult<&str, ArithmeticInstruction> {
 }
 
 fn label(input: &str) -> IResult<&str, &str> {
-    terminated(is_not(":"), terminated(char(':'), line_ending))(input)
+    terminated(is_not(":\r\n \t"), terminated(char(':'), line_ending))(input)
 }
 
 fn jump(input: &str) -> IResult<&str, (Jump, &str)> {

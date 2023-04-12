@@ -1,7 +1,7 @@
 use const_panic::concat_panic;
 use std::fmt::{Display, Write};
 
-#[derive(Eq, PartialEq, Debug)]
+#[derive(Eq, PartialEq, Debug, Hash, Clone)]
 pub enum GeneralRegister {
     A,
     B,
@@ -41,7 +41,7 @@ impl Display for GeneralRegister {
     }
 }
 
-#[derive(Eq, PartialEq, Debug)]
+#[derive(Eq, PartialEq, Debug, Hash, Clone)]
 pub enum SpecialRegister {
     StackPointer,
     BasePointer,
@@ -82,13 +82,13 @@ impl Display for SpecialRegister {
     }
 }
 
-#[derive(Eq, PartialEq, Debug)]
+#[derive(Eq, PartialEq, Debug, Hash, Clone)]
 pub enum ByteRegisterSubset {
     High,
     Low,
 }
 
-#[derive(Eq, PartialEq, Debug)]
+#[derive(Eq, PartialEq, Debug, Hash, Clone)]
 pub enum RegisterSubset {
     All,
     Subset(ByteRegisterSubset),
@@ -104,7 +104,7 @@ impl Display for RegisterSubset {
     }
 }
 
-#[derive(Eq, PartialEq, Debug)]
+#[derive(Eq, PartialEq, Debug, Hash, Clone)]
 pub enum Register {
     General(GeneralRegister, RegisterSubset),
     Special(SpecialRegister),
