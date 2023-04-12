@@ -1,9 +1,7 @@
 use nom::{
     branch::alt,
     bytes::complete::{is_not, tag},
-    character::complete::{
-        alphanumeric1, char, digit1, line_ending, multispace0, none_of, not_line_ending, one_of,
-    },
+    character::complete::{char, digit1, line_ending, multispace0, not_line_ending, one_of},
     combinator::map_res,
     multi::many0,
     sequence::{delimited, preceded, separated_pair, terminated, tuple},
@@ -330,14 +328,14 @@ fn mem_reg_move_instruction(input: &str) -> IResult<&str, MemRegMove> {
 fn immediate_wide(input: &str) -> IResult<&str, (Register, u16)> {
     tuple((
         terminated(wide_register, argument_sep),
-        map_res(literal_u16, |x| Ok::<_, ()>(x)),
+        map_res(literal_u16, Ok::<_, ()>),
     ))(input)
 }
 
 fn immediate_byte(input: &str) -> IResult<&str, (Register, u8)> {
     tuple((
         terminated(byte_register, argument_sep),
-        map_res(literal_u8, |x| Ok::<_, ()>(x)),
+        map_res(literal_u8, Ok::<_, ()>),
     ))(input)
 }
 

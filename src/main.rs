@@ -541,61 +541,51 @@ pub struct ArithmeticInstruction {
 }
 
 impl ArithmeticInstruction {
+    /// d is expected to be either 0 or 1.
+    fn to_byte(s: ArithmeticOperation, d: u8, is_wide: bool) -> u8 {
+        // Implicit opcode of 0b000 at the start.
+        (s as u8) * 8 + d * 2 + if is_wide { 1 } else { 0 }
+    }
+
     fn to_bytes(&self) -> Vec<u8> {
         let mut result = Vec::<u8>::with_capacity(2);
         match &self.instruction {
             ArithmeticInstructionSelect::RegisterToRegister(data) => {
-                let (rm, is_wide) = data.dest.to_id();
+                let (source, is_wide_s) = data.source.to_id();
+                let (dest, is_wide_d) = data.dest.to_id();
+                if is_wide_s != is_wide_d {
+                    panic!("Somehow tried to do arithmetic between mismatched sizes")
+                }
                 let d = 0;
-                result
-                    .push(0b00000000u8 + (self.op as u8) * 8 + d * 2 + if is_wide { 1 } else { 0 });
+                result.push(Self::to_byte(self.op, d, is_wide_s));
 
                 let mode = 0b11000000u8;
-                match (&data.source, &data.dest) {
-                    (
-                        Register::General(source, RegisterSubset::Subset(source_subset)),
-                        Register::General(dest, RegisterSubset::Subset(dest_subset)),
-                    ) => {
-                        let dest_offset: u8 = 4 * match dest_subset {
-                            ByteRegisterSubset::Low => 0,
-                            ByteRegisterSubset::High => 1,
-                        };
-                        let source_offset: u8 = 4 * match source_subset {
-                            ByteRegisterSubset::Low => 0,
-                            ByteRegisterSubset::High => 1,
-                        };
-                        let reg: u8 = source_offset + source.to_id();
-                        result.push(mode + reg * 8 + rm);
-                    }
-                    (
-                        Register::General(source, RegisterSubset::All),
-                        Register::General(dest, RegisterSubset::All),
-                    ) => {
-                        let reg = source.to_id();
-                        result.push(mode + reg * 8 + rm);
-                    }
-                    (Register::General(_, _), Register::General(_, _)) => {
-                        panic!("Tried to add mismatched register sizes");
-                    }
-                    (Register::General(_, _), Register::Special(_)) => todo!(),
-                    (Register::Special(_), Register::General(_, _)) => todo!(),
-                    (Register::Special(_), Register::Special(_)) => todo!(),
-                }
+                result.push(mode + source * 8 + dest);
             }
-            ArithmeticInstructionSelect::RegisterToMemory(_) => todo!(),
-            ArithmeticInstructionSelect::MemoryToRegister(_) => todo!(),
+            ArithmeticInstructionSelect::RegisterToMemory(instruction) => {
+                let (source, is_wide) = instruction.source.to_id();
+                let d = 0; // REG = source
+                result.push(Self::to_byte(self.op, d, is_wide));
+                push_effective_address(&instruction.dest, source, &mut result);
+            }
+            ArithmeticInstructionSelect::MemoryToRegister(instruction) => {
+                let (dest, is_wide) = instruction.dest.to_id();
+                let d = 1; // REG = dest
+                result.push(Self::to_byte(self.op, d, is_wide));
+                push_effective_address(&instruction.source, dest, &mut result);
+            }
             ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryByte(dest, data, signed) => {
                 let sign_bit = if *signed { 1 } else { 0 };
                 let w = 0u8;
                 result.push(0b10000000u8 + 2 * sign_bit + w);
-                push_effective_address(&dest, self.op as u8, &mut result);
+                push_effective_address(dest, self.op as u8, &mut result);
                 result.push(*data);
             }
             ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryWord(dest, data, signed) => {
                 let sign_bit = if *signed { 1 } else { 0 };
                 let w = 1u8;
                 result.push(0b10000000u8 + 2 * sign_bit + w);
-                push_effective_address(&dest, self.op as u8, &mut result);
+                push_effective_address(dest, self.op as u8, &mut result);
                 result.push((data % 256) as u8);
                 result.push((data / 256) as u8);
             }
@@ -1263,14 +1253,10 @@ where
         }
         let mut labels = HashMap::new();
         for (counter, instruction) in self.instructions.as_ref().iter().enumerate() {
-            match instruction {
-                Instruction::Trivia(TriviaInstruction::Label(s)) => {
-                    match labels.insert(*s, counter) {
-                        Some(_) => panic!("same label twice: {}", s),
-                        None => {}
-                    }
+            if let Instruction::Trivia(TriviaInstruction::Label(s)) = instruction {
+                if let Some(s) = labels.insert(*s, counter) {
+                    panic!("same label twice: {}", s)
                 }
-                _ => {}
             }
         }
 
@@ -1334,34 +1320,6 @@ struct Args {
     asm_path: std::path::PathBuf,
 }
 
-fn instruction_equal_ignoring_labels<A, B>(i1: &Instruction<A>, i2: &Instruction<B>) -> bool {
-    match (i1, i2) {
-        (Instruction::RegRegMove(i1), Instruction::RegRegMove(i2)) => i1 == i2,
-        (Instruction::RegRegMove(_), _) => false,
-        (Instruction::RegMemMove(i1), Instruction::RegMemMove(i2)) => i1 == i2,
-        (Instruction::RegMemMove(_), _) => false,
-        (Instruction::MemRegMove(i1), Instruction::MemRegMove(i2)) => i1 == i2,
-        (Instruction::MemRegMove(_), _) => false,
-        (Instruction::ImmediateToRegister(i1), Instruction::ImmediateToRegister(i2)) => i1 == i2,
-        (Instruction::ImmediateToRegister(_), _) => false,
-        (
-            Instruction::ImmediateToRegisterOrMemory(i1),
-            Instruction::ImmediateToRegisterOrMemory(i2),
-        ) => i1 == i2,
-        (Instruction::ImmediateToRegisterOrMemory(_), _) => false,
-        (Instruction::MemoryToAccumulator(i1), Instruction::MemoryToAccumulator(i2)) => i1 == i2,
-        (Instruction::MemoryToAccumulator(_), _) => false,
-        (Instruction::AccumulatorToMemory(i1), Instruction::AccumulatorToMemory(i2)) => i1 == i2,
-        (Instruction::AccumulatorToMemory(_), _) => false,
-        (Instruction::Arithmetic(i1), Instruction::Arithmetic(i2)) => i1 == i2,
-        (Instruction::Arithmetic(_), _) => false,
-        (Instruction::Jump(i1, _), Instruction::Jump(i2, _)) => i1 == i2,
-        (Instruction::Jump(_, _), _) => false,
-        (Instruction::Trivia(_), Instruction::Trivia(_)) => true,
-        (Instruction::Trivia(_), _) => false,
-    }
-}
-
 fn program_equal_ignoring_labels<A, B>(
     p1: &Program<Vec<Instruction<A>>, A>,
     p2: &Program<Vec<Instruction<B>>, B>,
@@ -1373,14 +1331,14 @@ where
         return false;
     }
 
-    let without_trivia_1 = p1.instructions.iter().filter(|i| match i {
-        Instruction::Trivia(_) => false,
-        _ => true,
-    });
-    let mut without_trivia_2 = p1.instructions.iter().filter(|i| match i {
-        Instruction::Trivia(_) => false,
-        _ => true,
-    });
+    let without_trivia_1 = p1
+        .instructions
+        .iter()
+        .filter(|i| !matches!(i, Instruction::Trivia(_)));
+    let mut without_trivia_2 = p1
+        .instructions
+        .iter()
+        .filter(|i| !matches!(i, Instruction::Trivia(_)));
 
     for i1 in without_trivia_1 {
         if let Some(i2) = without_trivia_2.next() {
@@ -1390,7 +1348,7 @@ where
         }
     }
 
-    if let Some(_) = without_trivia_2.next() {
+    if without_trivia_2.next().is_some() {
         return false;
     }
 
@@ -1449,12 +1407,45 @@ mod test_program {
     use std::{collections::HashMap, marker::PhantomData};
 
     use crate::{
-        instruction_equal_ignoring_labels, program_equal_ignoring_labels,
         register::{GeneralRegister, Register, RegisterSubset},
         ImmediateToRegister, Instruction, MemRegMove, Program,
     };
 
     use super::assembly::program;
+
+    fn instruction_equal_ignoring_labels<A, B>(i1: &Instruction<A>, i2: &Instruction<B>) -> bool {
+        match (i1, i2) {
+            (Instruction::RegRegMove(i1), Instruction::RegRegMove(i2)) => i1 == i2,
+            (Instruction::RegRegMove(_), _) => false,
+            (Instruction::RegMemMove(i1), Instruction::RegMemMove(i2)) => i1 == i2,
+            (Instruction::RegMemMove(_), _) => false,
+            (Instruction::MemRegMove(i1), Instruction::MemRegMove(i2)) => i1 == i2,
+            (Instruction::MemRegMove(_), _) => false,
+            (Instruction::ImmediateToRegister(i1), Instruction::ImmediateToRegister(i2)) => {
+                i1 == i2
+            }
+            (Instruction::ImmediateToRegister(_), _) => false,
+            (
+                Instruction::ImmediateToRegisterOrMemory(i1),
+                Instruction::ImmediateToRegisterOrMemory(i2),
+            ) => i1 == i2,
+            (Instruction::ImmediateToRegisterOrMemory(_), _) => false,
+            (Instruction::MemoryToAccumulator(i1), Instruction::MemoryToAccumulator(i2)) => {
+                i1 == i2
+            }
+            (Instruction::MemoryToAccumulator(_), _) => false,
+            (Instruction::AccumulatorToMemory(i1), Instruction::AccumulatorToMemory(i2)) => {
+                i1 == i2
+            }
+            (Instruction::AccumulatorToMemory(_), _) => false,
+            (Instruction::Arithmetic(i1), Instruction::Arithmetic(i2)) => i1 == i2,
+            (Instruction::Arithmetic(_), _) => false,
+            (Instruction::Jump(i1, _), Instruction::Jump(i2, _)) => i1 == i2,
+            (Instruction::Jump(_, _), _) => false,
+            (Instruction::Trivia(_), Instruction::Trivia(_)) => true,
+            (Instruction::Trivia(_), _) => false,
+        }
+    }
 
     #[test]
     fn test_programs_with_different_instruction_sequences_are_not_equal() {
