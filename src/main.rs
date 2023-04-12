@@ -2,21 +2,105 @@ mod assembly;
 mod register;
 
 use std::{
+    collections::HashMap,
     fmt::{Display, Write},
     fs,
+    marker::PhantomData,
     path::Path,
 };
 
 use clap::Parser;
+use const_panic::concat_panic;
 use register::{ByteRegisterSubset, Register, RegisterSubset};
 
-#[derive(Eq, PartialEq, Debug)]
+#[derive(Eq, PartialEq, Debug, Hash, Clone)]
 pub struct RegRegMove {
     source: Register,
     dest: Register,
 }
 
-#[derive(Eq, PartialEq, Debug)]
+impl RegRegMove {
+    fn to_bytes(&self) -> Vec<u8> {
+        let mut result = Vec::with_capacity(2);
+        let instruction1 = 0b10001000u8;
+        let mut is_wide = 1u8;
+        // We always pick the 0 direction, so REG indicates the source.
+        let d: u8 = 0;
+        // Register-to-register move
+        let mode = 0b11000000u8;
+        match (&self.dest, &self.source) {
+            (
+                Register::General(dest, RegisterSubset::Subset(dest_subset)),
+                Register::General(source, RegisterSubset::Subset(source_subset)),
+            ) => {
+                is_wide = 0;
+                result.push(instruction1 + 2 * d + is_wide);
+
+                let dest_offset: u8 = 4 * match dest_subset {
+                    ByteRegisterSubset::Low => 0,
+                    ByteRegisterSubset::High => 1,
+                };
+                let rm: u8 = dest_offset + dest.to_id();
+
+                let source_offset: u8 = 4 * match source_subset {
+                    ByteRegisterSubset::Low => 0,
+                    ByteRegisterSubset::High => 1,
+                };
+                let reg: u8 = source_offset + source.to_id();
+                result.push(mode + reg * 8 + rm);
+            }
+            (
+                Register::General(dest, RegisterSubset::All),
+                Register::General(source, RegisterSubset::All),
+            ) => {
+                result.push(instruction1 + 2 * d + is_wide);
+                let reg = source.to_id();
+                let rm = dest.to_id();
+                result.push(mode + reg * 8 + rm);
+            }
+            (Register::General(dest, RegisterSubset::All), Register::Special(source)) => {
+                result.push(instruction1 + 2 * d + is_wide);
+                let reg = source.to_id();
+                let rm = dest.to_id();
+                result.push(mode + reg * 8 + rm);
+            }
+            (Register::Special(dest), Register::General(source, RegisterSubset::All)) => {
+                result.push(instruction1 + 2 * d + is_wide);
+                let reg = source.to_id();
+                let rm = dest.to_id();
+                result.push(mode + reg * 8 + rm);
+            }
+            (Register::Special(dest), Register::Special(source)) => {
+                result.push(instruction1 + 2 * d + is_wide);
+                let reg = source.to_id();
+                let rm = dest.to_id();
+                result.push(mode + reg * 8 + rm);
+            }
+            (
+                Register::General(_, RegisterSubset::Subset(_)),
+                Register::General(_, RegisterSubset::All),
+            ) => {
+                panic!("tried to move wide into narrow")
+            }
+            (Register::General(_, RegisterSubset::Subset(_)), Register::Special(_)) => {
+                panic!("tried to move wide into narrow")
+            }
+            (Register::Special(_), Register::General(_, RegisterSubset::Subset(_))) => {
+                panic!("tried to move narrow into wide")
+            }
+            (
+                Register::General(_, RegisterSubset::All),
+                Register::General(_, RegisterSubset::Subset(_)),
+            ) => {
+                panic!("tried to move narrow into wide")
+            }
+        }
+
+        result
+    }
+}
+
+#[derive(Eq, PartialEq, Debug, Hash, Clone)]
 pub enum SourceDest {
     Source,
     Dest,
@@ -31,7 +115,7 @@ impl Display for SourceDest {
     }
 }
 
-#[derive(Eq, PartialEq, Debug)]
+#[derive(Eq, PartialEq, Debug, Hash, Clone)]
 pub enum Base {
     Bx,
     Bp,
@@ -46,7 +130,7 @@ impl Display for Base {
     }
 }
 
-#[derive(Eq, PartialEq, Debug)]
+#[derive(Eq, PartialEq, Debug, Hash, Clone)]
 pub enum WithOffset<T> {
     Basic(T),
     WithU8(T, u8),
@@ -66,7 +150,7 @@ where
     }
 }
 
-#[derive(Eq, PartialEq, Debug)]
+#[derive(Eq, PartialEq, Debug, Hash, Clone)]
 pub enum EffectiveAddress {
     Sum(WithOffset<(Base, SourceDest)>),
     SpecifiedIn(WithOffset<SourceDest>),
@@ -113,22 +197,140 @@ impl Display for EffectiveAddress {
     }
 }
 
-#[derive(Eq, PartialEq, Debug)]
+fn mode_rm_to_eaddr<I>(mode: u8, rm: u8, bytes: &mut I) -> EffectiveAddress
+where
+    I: Iterator<Item = u8>,
+{
+    let source_dest = if rm % 2 == 0 {
+        SourceDest::Source
+    } else {
+        SourceDest::Dest
+    };
+    let base = if (rm / 2) % 2 == 0 {
+        Base::Bx
+    } else {
+        Base::Bp
+    };
+    let displacement_low = if rm == 6 || mode > 0 {
+        bytes.next().expect("required an 8-bit displacement")
+    } else {
+        0
+    };
+    let displacement_high = if (rm == 6 && mode == 0) || mode == 2 {
+        let high = bytes.next().expect("required a 16-bit displacement");
+        (high as u16) * 256 + (displacement_low as u16)
+    } else {
+        0
+    };
+
+    if rm < 4 {
+        match mode {
+            0 => EffectiveAddress::Sum(WithOffset::Basic((base, source_dest))),
+            1 => EffectiveAddress::Sum(WithOffset::WithU8((base, source_dest), displacement_low)),
+            2 => EffectiveAddress::Sum(WithOffset::WithU16((base, source_dest), displacement_high)),
+            _ => panic!("Got bad mode: {}", mode),
+        }
+    } else if rm < 6 {
+        match mode {
+            0 => EffectiveAddress::SpecifiedIn(WithOffset::Basic(source_dest)),
+            1 => EffectiveAddress::SpecifiedIn(WithOffset::WithU8(source_dest, displacement_low)),
+            2 => EffectiveAddress::SpecifiedIn(WithOffset::WithU16(source_dest, displacement_high)),
+            _ => panic!("Got bad mode: {}", mode),
+        }
+    } else if rm == 6 {
+        match mode {
+            0 => EffectiveAddress::Direct(displacement_high),
+            1 => EffectiveAddress::BasePointer(displacement_low),
+            2 => EffectiveAddress::BasePointerWide(displacement_high),
+            _ => panic!("Got bad mode: {}", mode),
+        }
+    } else {
+        assert_eq!(rm, 7);
+        match mode {
+            0 => EffectiveAddress::Bx(WithOffset::Basic(())),
+            1 => EffectiveAddress::Bx(WithOffset::WithU8((), displacement_low)),
+            2 => EffectiveAddress::Bx(WithOffset::WithU16((), displacement_high)),
+            _ => panic!("Got bad mode: {}", mode),
+        }
+    }
+}
+
+#[derive(Eq, PartialEq, Debug, Hash, Clone)]
 pub struct RegMemMove {
     source: Register,
     dest: EffectiveAddress,
 }
 
-#[derive(Eq, PartialEq, Debug)]
+impl RegMemMove {
+    fn to_bytes(&self) -> Vec<u8> {
+        let mut result = Vec::<u8>::with_capacity(2);
+
+        let instruction1 = 0b10001000u8;
+        // Source is the register.
+        let d = 0;
+        let (source_reg, is_wide) = self.source.to_id();
+        result.push(instruction1 + 2 * d + if is_wide { 1 } else { 0 });
+
+        push_effective_address(&self.dest, source_reg, &mut result);
+
+        result
+    }
+}
+
+#[derive(Eq, PartialEq, Debug, Hash, Clone)]
 pub struct MemRegMove {
     source: EffectiveAddress,
     dest: Register,
 }
 
-#[derive(Eq, PartialEq, Debug)]
+impl MemRegMove {
+    fn to_bytes(&self) -> Vec<u8> {
+        let mut result = Vec::with_capacity(2);
+
+        let instruction1 = 0b10001000u8;
+        // Source is the effective address, so REG is the dest.
+        let d: u8 = 1;
+        let (dest_reg, is_wide) = self.dest.to_id();
+        result.push(instruction1 + 2 * d + if is_wide { 1 } else { 0 });
+
+        push_effective_address(&self.source, dest_reg, &mut result);
+
+        result
+    }
+}
+
+#[derive(Eq, PartialEq, Debug, Hash, Clone)]
 pub enum ImmediateToRegister {
     Byte(Register, u8),
     Wide(Register, u16),
+}
+
+impl ImmediateToRegister {
+    fn to_bytes(&self) -> Vec<u8> {
+        let mut result = Vec::<u8>::with_capacity(2);
+        let instruction = 0b10110000u8;
+        match self {
+            ImmediateToRegister::Byte(register, data) => {
+                let (reg, is_wide) = register.to_id();
+                if is_wide {
+                    panic!("Tried to store a byte into a word register")
+                }
+                result.push(instruction + reg);
+                result.push(*data);
+            }
+            ImmediateToRegister::Wide(register, data) => {
+                result.reserve_exact(1);
+                let (reg, is_wide) = register.to_id();
+                if !is_wide {
+                    panic!("Tried to store a word into a byte register")
+                }
+                result.push(instruction + 8 + reg);
+                result.push((data % 256) as u8);
+                result.push((data / 256) as u8);
+            }
+        }
+        result
+    }
 }
 
 impl Display for ImmediateToRegister {
@@ -144,26 +346,293 @@ impl Display for ImmediateToRegister {
     }
 }
 
-#[derive(Eq, PartialEq, Debug)]
+#[derive(Eq, PartialEq, Debug, Hash, Clone)]
 pub enum ImmediateToRegisterOrMemory {
     Byte(EffectiveAddress, u8),
     Word(EffectiveAddress, u16),
 }
 
-#[derive(Eq, PartialEq, Debug)]
+impl ImmediateToRegisterOrMemory {
+    fn to_bytes(&self) -> Vec<u8> {
+        let mut result = Vec::<u8>::with_capacity(3);
+        let opcode = 0b11000110u8;
+
+        match self {
+            ImmediateToRegisterOrMemory::Byte(address, data) => {
+                result.push(opcode);
+                push_effective_address(address, 0, &mut result);
+                result.push(*data);
+            }
+            ImmediateToRegisterOrMemory::Word(address, data) => {
+                result.push(opcode + 1);
+                push_effective_address(address, 0, &mut result);
+                result.push((data % 256) as u8);
+                result.push((data / 256) as u8);
+            }
+        }
+
+        result
+    }
+}
+
+#[derive(Eq, PartialEq, Debug, Hash, Clone)]
 pub struct MemoryToAccumulator {
     address: u16,
     is_wide: bool,
 }
 
-#[derive(Eq, PartialEq, Debug)]
+impl MemoryToAccumulator {
+    fn to_bytes(&self) -> Vec<u8> {
+        let mut result = Vec::<u8>::with_capacity(3);
+        result.push(0b10100000u8 + if self.is_wide { 1 } else { 0 });
+        result.push((self.address % 256) as u8);
+        result.push((self.address / 256) as u8);
+
+        result
+    }
+}
+
+#[derive(Eq, PartialEq, Debug, Hash, Clone)]
 pub struct AccumulatorToMemory {
     address: u16,
     is_wide: bool,
 }
 
-#[derive(Eq, PartialEq, Debug)]
-pub enum Instruction {
+impl AccumulatorToMemory {
+    fn to_bytes(&self) -> Vec<u8> {
+        let mut result = Vec::<u8>::with_capacity(3);
+        result.push(0b10100010u8 + if self.is_wide { 1 } else { 0 });
+        result.push((self.address % 256) as u8);
+        result.push((self.address / 256) as u8);
+
+        result
+    }
+}
+
+#[derive(Eq, PartialEq, Debug, Hash, Clone)]
+pub enum Jump {
+    Je,
+    Jl,
+    Jle,
+    Jb,
+    Jbe,
+    Jp,
+    Jo,
+    Js,
+    Jne,
+    Jnl,
+    Jnle,
+    Jnb,
+    Jnbe,
+    Jnp,
+    Jno,
+    Jns,
+    Loop,
+    Loopz,
+    Loopnz,
+    Jcxz,
+}
+
+impl Display for Jump {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Jump::Je => "je",
+            Jump::Jl => "jl",
+            Jump::Jle => "jle",
+            Jump::Jb => "jb",
+            Jump::Jbe => "jbe",
+            Jump::Jp => "jp",
+            Jump::Jo => "jo",
+            Jump::Js => "js",
+            Jump::Jne => "jne",
+            Jump::Jnl => "jnl",
+            Jump::Jnle => "jnle",
+            Jump::Jnb => "jnb",
+            Jump::Jnbe => "jnbe",
+            Jump::Jnp => "jnp",
+            Jump::Jno => "jno",
+            Jump::Jns => "jns",
+            Jump::Loop => "loop",
+            Jump::Loopz => "loopz",
+            Jump::Loopnz => "loopnz",
+            Jump::Jcxz => "jcxz",
+        })
+    }
+}
+
+#[derive(Eq, PartialEq, Debug, Clone, Copy, Hash)]
+pub enum ArithmeticOperation {
+    Add = 0,
+    Or = 1,
+    AddWithCarry = 2,
+    SubWithBorrow = 3,
+    And = 4,
+    Sub = 5,
+    Xor = 6,
+    Cmp = 7,
+}
+
+impl Display for ArithmeticOperation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            ArithmeticOperation::Add => "add",
+            ArithmeticOperation::Or => "or",
+            ArithmeticOperation::AddWithCarry => "adc",
+            ArithmeticOperation::SubWithBorrow => "sbb",
+            ArithmeticOperation::And => "and",
+            ArithmeticOperation::Sub => "sub",
+            ArithmeticOperation::Xor => "xor",
+            ArithmeticOperation::Cmp => "cmp",
+        })
+    }
+}
+
+impl ArithmeticOperation {
+    pub const fn of_byte(x: u8) -> ArithmeticOperation {
+        match x {
+            0 => ArithmeticOperation::Add,
+            1 => ArithmeticOperation::Or,
+            2 => ArithmeticOperation::AddWithCarry,
+            3 => ArithmeticOperation::SubWithBorrow,
+            4 => ArithmeticOperation::And,
+            5 => ArithmeticOperation::Sub,
+            6 => ArithmeticOperation::Xor,
+            7 => ArithmeticOperation::Cmp,
+            _ => concat_panic!("Unrecognised arithmetic op: {}", x),
+        }
+    }
+}
+
+#[derive(Eq, PartialEq, Debug, Hash, Clone)]
+pub struct RegRegArithmetic {
+    source: Register,
+    dest: Register,
+}
+
+#[derive(Eq, PartialEq, Debug, Hash, Clone)]
+pub struct RegMemArithmetic {
+    source: Register,
+    dest: EffectiveAddress,
+}
+
+#[derive(Eq, PartialEq, Debug, Hash, Clone)]
+pub struct MemRegArithmetic {
+    dest: Register,
+    source: EffectiveAddress,
+}
+
+#[derive(Eq, PartialEq, Debug, Hash, Clone)]
+pub enum ArithmeticInstructionSelect {
+    RegisterToRegister(RegRegArithmetic),
+    RegisterToMemory(RegMemArithmetic),
+    MemoryToRegister(MemRegArithmetic),
+    ImmediateToRegisterByte(Register, u8, bool),
+    ImmediateToRegisterWord(Register, u16, bool),
+    /// The bool here is "is this actually a u16"
+    ImmediateToRegisterOrMemoryByte(EffectiveAddress, u8, bool),
+    ImmediateToRegisterOrMemoryWord(EffectiveAddress, u16),
+    ImmediateToAccByte(u8),
+    ImmediateToAccWord(u16),
+}
+
+#[derive(Eq, PartialEq, Debug, Hash, Clone)]
+pub struct ArithmeticInstruction {
+    op: ArithmeticOperation,
+    instruction: ArithmeticInstructionSelect,
+}
+
+impl ArithmeticInstruction {
+    /// d is expected to be either 0 or 1.
+    fn to_byte(s: ArithmeticOperation, d: u8, is_wide: bool) -> u8 {
+        // Implicit opcode of 0b000 at the start.
+        (s as u8) * 8 + d * 2 + if is_wide { 1 } else { 0 }
+    }
+
+    fn to_bytes(&self) -> Vec<u8> {
+        let mut result = Vec::<u8>::with_capacity(2);
+        match &self.instruction {
+            ArithmeticInstructionSelect::RegisterToRegister(data) => {
+                let (source, is_wide_s) = data.source.to_id();
+                let (dest, is_wide_d) = data.dest.to_id();
+                if is_wide_s != is_wide_d {
+                    panic!("Somehow tried to do arithmetic between mismatched sizes")
+                }
+                let d = 0;
+                result.push(Self::to_byte(self.op, d, is_wide_s));
+
+                let mode = 0b11000000u8;
+                result.push(mode + source * 8 + dest);
+            }
+            ArithmeticInstructionSelect::RegisterToMemory(instruction) => {
+                let (source, is_wide) = instruction.source.to_id();
+                let d = 0; // REG = source
+                result.push(Self::to_byte(self.op, d, is_wide));
+                push_effective_address(&instruction.dest, source, &mut result);
+            }
+            ArithmeticInstructionSelect::MemoryToRegister(instruction) => {
+                let (dest, is_wide) = instruction.dest.to_id();
+                let d = 1; // REG = dest
+                result.push(Self::to_byte(self.op, d, is_wide));
+                push_effective_address(&instruction.source, dest, &mut result);
+            }
+            ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryByte(dest, data, signed) => {
+                let sign_bit = if *signed { 1 } else { 0 };
+                let w = sign_bit;
+                result.push(0b10000000u8 + 2 * sign_bit + w);
+                push_effective_address(dest, self.op as u8, &mut result);
+                result.push(*data);
+            }
+            ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryWord(dest, data) => {
+                let sign_bit = 0u8;
+                let w = 1u8;
+                result.push(0b10000000u8 + 2 * sign_bit + w);
+                push_effective_address(dest, self.op as u8, &mut result);
+                result.push((data % 256) as u8);
+                result.push((data / 256) as u8)
+            }
+            ArithmeticInstructionSelect::ImmediateToRegisterByte(reg, data, signed) => {
+                let sign_bit = if *signed { 1 } else { 0 };
+                let (rm, is_wide) = Register::to_id(reg);
+                result.push(0b10000000u8 + 2 * sign_bit + if is_wide { 1 } else { 0 });
+                result.push(0b11000000 + (self.op as u8) * 8 + rm);
+                result.push(*data);
+            }
+            ArithmeticInstructionSelect::ImmediateToRegisterWord(reg, data, signed) => {
+                let sign_bit = if *signed { 1 } else { 0 };
+                let (rm, is_wide) = Register::to_id(reg);
+                result.push(0b10000000u8 + 2 * sign_bit + if is_wide { 1 } else { 0 });
+                result.push(0b11000000 + (self.op as u8) * 8 + rm);
+                result.push((data % 256) as u8);
+                if !*signed {
+                    result.push((data / 256) as u8);
+                }
+            }
+            ArithmeticInstructionSelect::ImmediateToAccByte(data) => {
+                let instruction = 0b00000100 + (self.op as u8) * 8;
+                let w = 0u8;
+                result.push(instruction + w);
+                result.push(*data);
+            }
+            ArithmeticInstructionSelect::ImmediateToAccWord(data) => {
+                let instruction = 0b00000100 + (self.op as u8) * 8;
+                let w = 1u8;
+                result.push(instruction + w);
+                result.push((data % 256) as u8);
+                result.push((data / 256) as u8);
+            }
+        }
+
+        result
+    }
+}
+
+#[derive(Eq, PartialEq, Debug, Hash, Clone)]
+pub enum TriviaInstruction<InstructionOffset> {
+    Label(InstructionOffset),
+}
+
+#[derive(Eq, PartialEq, Debug, Hash, Clone)]
+pub enum Instruction<InstructionOffset> {
     /// Move a value from one register to another
     RegRegMove(RegRegMove),
     /// Store a value from a register into memory
@@ -178,9 +647,17 @@ pub enum Instruction {
     MemoryToAccumulator(MemoryToAccumulator),
     /// Store a value into memory from the accumulator
     AccumulatorToMemory(AccumulatorToMemory),
+    /// Perform arithmetic
+    Arithmetic(ArithmeticInstruction),
+    Jump(Jump, InstructionOffset),
+    /// An irrelevant instruction.
+    Trivia(TriviaInstruction<InstructionOffset>),
 }
 
-impl Display for Instruction {
+impl<InstructionOffset> Display for Instruction<InstructionOffset>
+where
+    InstructionOffset: Display,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Instruction::RegRegMove(mov) => {
@@ -213,370 +690,266 @@ impl Display for Instruction {
                 instruction.address,
                 if instruction.is_wide { 'x' } else { 'l' }
             )),
+            Instruction::Arithmetic(op) => {
+                f.write_fmt(format_args!("{} ", op.op))?;
+                match &op.instruction {
+                    ArithmeticInstructionSelect::RegisterToRegister(inst) => {
+                        f.write_fmt(format_args!("{}, {}", inst.dest, inst.source))
+                    }
+                    ArithmeticInstructionSelect::RegisterToMemory(inst) => {
+                        f.write_fmt(format_args!("{}, {}", inst.dest, inst.source))
+                    }
+                    ArithmeticInstructionSelect::MemoryToRegister(inst) => {
+                        f.write_fmt(format_args!("{}, {}", inst.dest, inst.source))
+                    }
+                    ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryByte(addr, data, _) => {
+                        f.write_fmt(format_args!("{}, {}", addr, data))
+                    }
+                    ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryWord(addr, data) => {
+                        f.write_fmt(format_args!("{}, {}", addr, data))
+                    }
+                    ArithmeticInstructionSelect::ImmediateToRegisterByte(addr, data, signed) => {
+                        if *signed {
+                            f.write_fmt(format_args!("{}, {} ; signed byte", addr, *data))
+                        } else {
+                            f.write_fmt(format_args!("{}, {}", addr, data))
+                        }
+                    }
+                    ArithmeticInstructionSelect::ImmediateToRegisterWord(addr, data, signed) => {
+                        if *signed {
+                            f.write_fmt(format_args!("{}, {} ; signed word", addr, *data))
+                        } else {
+                            f.write_fmt(format_args!("{}, {}", addr, data))
+                        }
+                    }
+                    ArithmeticInstructionSelect::ImmediateToAccByte(data) => {
+                        f.write_fmt(format_args!("al, {}", data))
+                    }
+                    ArithmeticInstructionSelect::ImmediateToAccWord(data) => {
+                        f.write_fmt(format_args!("ax, {}", data))
+                    }
+                }
+            }
+            Instruction::Jump(instruction, offset) => {
+                f.write_fmt(format_args!("{} ; {}", instruction, offset))
+            }
+            Instruction::Trivia(trivia) => match trivia {
+                TriviaInstruction::Label(l) => f.write_fmt(format_args!("{}:", l)),
+            },
         }
     }
 }
 
-impl Instruction {
-    fn push_effective_address(address: &EffectiveAddress, reg: u8, result: &mut Vec<u8>) {
-        match address {
-            EffectiveAddress::Sum(WithOffset::Basic((base, source_dest))) => {
-                let mode = 0u8;
-                let rm = match base {
-                    Base::Bx => 0u8,
-                    Base::Bp => 2,
-                } + match source_dest {
-                    SourceDest::Source => 0,
-                    SourceDest::Dest => 1,
-                };
-                result.push(mode * 64 + reg * 8 + rm);
-            }
-            EffectiveAddress::Sum(WithOffset::WithU8((base, source_dest), offset)) => {
-                result.reserve_exact(1);
-                let mode = 1u8;
-                let rm = match base {
-                    Base::Bx => 0u8,
-                    Base::Bp => 2,
-                } + match source_dest {
-                    SourceDest::Source => 0,
-                    SourceDest::Dest => 1,
-                };
-                result.push(mode * 64 + reg * 8 + rm);
-                result.push(*offset);
-            }
-            EffectiveAddress::Sum(WithOffset::WithU16((base, source_dest), offset)) => {
-                result.reserve_exact(2);
-                let mode = 2u8;
-                let rm = match base {
-                    Base::Bx => 0u8,
-                    Base::Bp => 2,
-                } + match source_dest {
-                    SourceDest::Source => 0,
-                    SourceDest::Dest => 1,
-                };
-                result.push(mode * 64 + reg * 8 + rm);
-                result.push((offset % 256) as u8);
-                result.push((offset / 256) as u8);
-            }
-            EffectiveAddress::SpecifiedIn(WithOffset::Basic(source_dest)) => {
-                let mode = 0u8;
-                let rm = match source_dest {
-                    SourceDest::Source => 4u8,
-                    SourceDest::Dest => 5,
-                };
-                result.push(mode * 64 + reg * 8 + rm);
-            }
-            EffectiveAddress::SpecifiedIn(WithOffset::WithU8(source_dest, offset)) => {
-                result.reserve_exact(1);
-                let mode = 1u8;
-                let rm = match source_dest {
-                    SourceDest::Source => 4u8,
-                    SourceDest::Dest => 5,
-                };
-                result.push(mode * 64 + reg * 8 + rm);
-                result.push(*offset);
-            }
-            EffectiveAddress::SpecifiedIn(WithOffset::WithU16(source_dest, offset)) => {
-                result.reserve_exact(2);
-                let mode = 2u8;
-                let rm = match source_dest {
-                    SourceDest::Source => 4u8,
-                    SourceDest::Dest => 5,
-                };
-                result.push(mode * 64 + reg * 8 + rm);
-                result.push((offset % 256) as u8);
-                result.push((offset / 256) as u8);
-            }
-            EffectiveAddress::Bx(WithOffset::Basic(())) => {
-                let mode = 0u8;
-                let rm = 7u8;
-                result.push(mode * 64 + reg * 8 + rm);
-            }
-            EffectiveAddress::Bx(WithOffset::WithU8((), offset)) => {
-                result.reserve_exact(1);
-                let mode = 1u8;
-                let rm = 7u8;
-                result.push(mode * 64 + reg * 8 + rm);
-                result.push(*offset);
-            }
-            EffectiveAddress::Bx(WithOffset::WithU16((), offset)) => {
-                result.reserve_exact(2);
-                let mode = 2u8;
-                let rm = 7u8;
-                result.push(mode * 64 + reg * 8 + rm);
-                result.push((offset % 256) as u8);
-                result.push((offset / 256) as u8);
-            }
-            EffectiveAddress::Direct(address) => {
-                result.reserve_exact(2);
-                let mode = 0u8;
-                let rm = 6u8;
-                result.push(mode * 64 + reg * 8 + rm);
-                result.push((address % 256) as u8);
-                result.push((address / 256) as u8);
-            }
-            EffectiveAddress::BasePointer(offset) => {
-                result.reserve_exact(1);
-                let mode = 1u8;
-                let rm = 6u8;
-                result.push(mode * 64 + reg * 8 + rm);
-                result.push(*offset);
-            }
-            EffectiveAddress::BasePointerWide(offset) => {
-                result.reserve_exact(2);
-                let mode = 2u8;
-                let rm = 6u8;
-                result.push(mode * 64 + reg * 8 + rm);
-                result.push((offset % 256) as u8);
-                result.push((offset / 256) as u8);
-            }
+fn push_effective_address(address: &EffectiveAddress, reg: u8, result: &mut Vec<u8>) {
+    match address {
+        EffectiveAddress::Sum(WithOffset::Basic((base, source_dest))) => {
+            let mode = 0u8;
+            let rm = match base {
+                Base::Bx => 0u8,
+                Base::Bp => 2,
+            } + match source_dest {
+                SourceDest::Source => 0,
+                SourceDest::Dest => 1,
+            };
+            result.push(mode * 64 + reg * 8 + rm);
+        }
+        EffectiveAddress::Sum(WithOffset::WithU8((base, source_dest), offset)) => {
+            result.reserve_exact(1);
+            let mode = 1u8;
+            let rm = match base {
+                Base::Bx => 0u8,
+                Base::Bp => 2,
+            } + match source_dest {
+                SourceDest::Source => 0,
+                SourceDest::Dest => 1,
+            };
+            result.push(mode * 64 + reg * 8 + rm);
+            result.push(*offset);
+        }
+        EffectiveAddress::Sum(WithOffset::WithU16((base, source_dest), offset)) => {
+            result.reserve_exact(2);
+            let mode = 2u8;
+            let rm = match base {
+                Base::Bx => 0u8,
+                Base::Bp => 2,
+            } + match source_dest {
+                SourceDest::Source => 0,
+                SourceDest::Dest => 1,
+            };
+            result.push(mode * 64 + reg * 8 + rm);
+            result.push((offset % 256) as u8);
+            result.push((offset / 256) as u8);
+        }
+        EffectiveAddress::SpecifiedIn(WithOffset::Basic(source_dest)) => {
+            let mode = 0u8;
+            let rm = match source_dest {
+                SourceDest::Source => 4u8,
+                SourceDest::Dest => 5,
+            };
+            result.push(mode * 64 + reg * 8 + rm);
+        }
+        EffectiveAddress::SpecifiedIn(WithOffset::WithU8(source_dest, offset)) => {
+            result.reserve_exact(1);
+            let mode = 1u8;
+            let rm = match source_dest {
+                SourceDest::Source => 4u8,
+                SourceDest::Dest => 5,
+            };
+            result.push(mode * 64 + reg * 8 + rm);
+            result.push(*offset);
+        }
+        EffectiveAddress::SpecifiedIn(WithOffset::WithU16(source_dest, offset)) => {
+            result.reserve_exact(2);
+            let mode = 2u8;
+            let rm = match source_dest {
+                SourceDest::Source => 4u8,
+                SourceDest::Dest => 5,
+            };
+            result.push(mode * 64 + reg * 8 + rm);
+            result.push((offset % 256) as u8);
+            result.push((offset / 256) as u8);
+        }
+        EffectiveAddress::Bx(WithOffset::Basic(())) => {
+            let mode = 0u8;
+            let rm = 7u8;
+            result.push(mode * 64 + reg * 8 + rm);
+        }
+        EffectiveAddress::Bx(WithOffset::WithU8((), offset)) => {
+            result.reserve_exact(1);
+            let mode = 1u8;
+            let rm = 7u8;
+            result.push(mode * 64 + reg * 8 + rm);
+            result.push(*offset);
+        }
+        EffectiveAddress::Bx(WithOffset::WithU16((), offset)) => {
+            result.reserve_exact(2);
+            let mode = 2u8;
+            let rm = 7u8;
+            result.push(mode * 64 + reg * 8 + rm);
+            result.push((offset % 256) as u8);
+            result.push((offset / 256) as u8);
+        }
+        EffectiveAddress::Direct(address) => {
+            result.reserve_exact(2);
+            let mode = 0u8;
+            let rm = 6u8;
+            result.push(mode * 64 + reg * 8 + rm);
+            result.push((address % 256) as u8);
+            result.push((address / 256) as u8);
+        }
+        EffectiveAddress::BasePointer(offset) => {
+            result.reserve_exact(1);
+            let mode = 1u8;
+            let rm = 6u8;
+            result.push(mode * 64 + reg * 8 + rm);
+            result.push(*offset);
+        }
+        EffectiveAddress::BasePointerWide(offset) => {
+            result.reserve_exact(2);
+            let mode = 2u8;
+            let rm = 6u8;
+            result.push(mode * 64 + reg * 8 + rm);
+            result.push((offset % 256) as u8);
+            result.push((offset / 256) as u8);
         }
     }
+}
 
+impl<'a> Instruction<&'a str> {
     fn to_bytes(&self) -> Vec<u8> {
         match self {
-            Instruction::RegRegMove(mov) => {
-                let mut result = Vec::with_capacity(2);
-                let instruction1 = 0b10001000u8;
-                let mut is_wide = 1u8;
-                // We always pick the 0 direction, so REG indicates the source.
-                let d: u8 = 0;
-                // Register-to-register move
-                let mode = 0b11000000u8;
-                match (&mov.dest, &mov.source) {
-                    (
-                        Register::General(dest, RegisterSubset::Subset(dest_subset)),
-                        Register::General(source, RegisterSubset::Subset(source_subset)),
-                    ) => {
-                        is_wide = 0;
-                        result.push(instruction1 + 2 * d + is_wide);
-
-                        let dest_offset: u8 = 4 * match dest_subset {
-                            ByteRegisterSubset::Low => 0,
-                            ByteRegisterSubset::High => 1,
-                        };
-                        let rm: u8 = dest_offset + dest.to_id();
-
-                        let source_offset: u8 = 4 * match source_subset {
-                            ByteRegisterSubset::Low => 0,
-                            ByteRegisterSubset::High => 1,
-                        };
-                        let reg: u8 = source_offset + source.to_id();
-                        result.push(mode + reg * 8 + rm);
-                    }
-                    (
-                        Register::General(dest, RegisterSubset::All),
-                        Register::General(source, RegisterSubset::All),
-                    ) => {
-                        result.push(instruction1 + 2 * d + is_wide);
-                        let reg = source.to_id();
-                        let rm = dest.to_id();
-                        result.push(mode + reg * 8 + rm);
-                    }
-                    (Register::General(dest, RegisterSubset::All), Register::Special(source)) => {
-                        result.push(instruction1 + 2 * d + is_wide);
-                        let reg = source.to_id();
-                        let rm = dest.to_id();
-                        result.push(mode + reg * 8 + rm);
-                    }
-                    (Register::Special(dest), Register::General(source, RegisterSubset::All)) => {
-                        result.push(instruction1 + 2 * d + is_wide);
-                        let reg = source.to_id();
-                        let rm = dest.to_id();
-                        result.push(mode + reg * 8 + rm);
-                    }
-                    (Register::Special(dest), Register::Special(source)) => {
-                        result.push(instruction1 + 2 * d + is_wide);
-                        let reg = source.to_id();
-                        let rm = dest.to_id();
-                        result.push(mode + reg * 8 + rm);
-                    }
-                    (
-                        Register::General(_, RegisterSubset::Subset(_)),
-                        Register::General(_, RegisterSubset::All),
-                    ) => {
-                        panic!("tried to move wide into narrow")
-                    }
-                    (Register::General(_, RegisterSubset::Subset(_)), Register::Special(_)) => {
-                        panic!("tried to move wide into narrow")
-                    }
-                    (Register::Special(_), Register::General(_, RegisterSubset::Subset(_))) => {
-                        panic!("tried to move narrow into wide")
-                    }
-                    (
-                        Register::General(_, RegisterSubset::All),
-                        Register::General(_, RegisterSubset::Subset(_)),
-                    ) => {
-                        panic!("tried to move narrow into wide")
-                    }
-                }
-
-                result
+            Instruction::RegRegMove(mov) => mov.to_bytes(),
+            Instruction::RegMemMove(mov) => mov.to_bytes(),
+            Instruction::MemRegMove(mov) => mov.to_bytes(),
+            Instruction::ImmediateToRegister(mov) => mov.to_bytes(),
+            Instruction::ImmediateToRegisterOrMemory(mov) => mov.to_bytes(),
+            Instruction::MemoryToAccumulator(mov) => mov.to_bytes(),
+            Instruction::AccumulatorToMemory(mov) => mov.to_bytes(),
+            Instruction::Arithmetic(instruction) => instruction.to_bytes(),
+            Instruction::Jump(instruction, _) => {
+                vec![
+                    match instruction {
+                        Jump::Je => 0b01110100,
+                        Jump::Jl => 0b01111100,
+                        Jump::Jle => 0b01111110,
+                        Jump::Jb => 0b01110010,
+                        Jump::Jbe => 0b01110110,
+                        Jump::Jp => 0b01111010,
+                        Jump::Jo => 0b01110000,
+                        Jump::Js => 0b01111000,
+                        Jump::Jne => 0b01110101,
+                        Jump::Jnl => 0b01111101,
+                        Jump::Jnle => 0b01111111,
+                        Jump::Jnb => 0b01110011,
+                        Jump::Jnbe => 0b01110111,
+                        Jump::Jnp => 0b01111011,
+                        Jump::Jno => 0b01110001,
+                        Jump::Jns => 0b01111001,
+                        Jump::Loop => 0b11100010,
+                        Jump::Loopz => 0b11100001,
+                        Jump::Loopnz => 0b11100000,
+                        Jump::Jcxz => 0b11100011,
+                    },
+                    // Placeholder destination which will be filled in later
+                    0,
+                ]
             }
 
-            Instruction::RegMemMove(mov) => {
+            Instruction::Trivia(_) => vec![],
+        }
+    }
+}
+
+impl Instruction<i8> {
+    fn to_bytes(&self) -> Vec<u8> {
+        match self {
+            Instruction::RegRegMove(mov) => mov.to_bytes(),
+            Instruction::RegMemMove(mov) => mov.to_bytes(),
+            Instruction::MemRegMove(mov) => mov.to_bytes(),
+            Instruction::ImmediateToRegister(mov) => mov.to_bytes(),
+            Instruction::ImmediateToRegisterOrMemory(mov) => mov.to_bytes(),
+            Instruction::MemoryToAccumulator(mov) => mov.to_bytes(),
+            Instruction::AccumulatorToMemory(mov) => mov.to_bytes(),
+            Instruction::Arithmetic(instruction) => instruction.to_bytes(),
+            Instruction::Jump(instruction, offset) => {
                 let mut result = Vec::<u8>::with_capacity(2);
 
-                let instruction1 = 0b10001000u8;
-                // Source is the register.
-                let d = 0;
-                let (source_reg, is_wide) = mov.source.to_id();
-                result.push(instruction1 + 2 * d + if is_wide { 1 } else { 0 });
+                result.push(match instruction {
+                    Jump::Je => 0b01110100,
+                    Jump::Jl => 0b11111100,
+                    Jump::Jle => 0b01111110,
+                    Jump::Jb => 0b01110010,
+                    Jump::Jbe => 0b01110110,
+                    Jump::Jp => 0b01111010,
+                    Jump::Jo => 0b01110000,
+                    Jump::Js => 0b01111000,
+                    Jump::Jne => 0b01110101,
+                    Jump::Jnl => 0b01111101,
+                    Jump::Jnle => 0b01111111,
+                    Jump::Jnb => 0b01110011,
+                    Jump::Jnbe => 0b01110111,
+                    Jump::Jnp => 0b01111011,
+                    Jump::Jno => 0b01110001,
+                    Jump::Jns => 0b01111001,
+                    Jump::Loop => 0b11100010,
+                    Jump::Loopz => 0b11100001,
+                    Jump::Loopnz => 0b11100000,
+                    Jump::Jcxz => 0b11100011,
+                });
 
-                Self::push_effective_address(&mov.dest, source_reg, &mut result);
-
-                result
-            }
-            Instruction::MemRegMove(mov) => {
-                let mut result = Vec::with_capacity(2);
-
-                let instruction1 = 0b10001000u8;
-                // Source is the effective address, so REG is the dest.
-                let d: u8 = 1;
-                let (dest_reg, is_wide) = mov.dest.to_id();
-                result.push(instruction1 + 2 * d + if is_wide { 1 } else { 0 });
-
-                Self::push_effective_address(&mov.source, dest_reg, &mut result);
-
-                result
-            }
-
-            Instruction::ImmediateToRegister(mov) => {
-                let mut result = Vec::<u8>::with_capacity(2);
-                let instruction = 0b10110000u8;
-                match mov {
-                    ImmediateToRegister::Byte(register, data) => {
-                        let (reg, is_wide) = register.to_id();
-                        if is_wide {
-                            panic!("Tried to store a byte into a word register")
-                        }
-                        result.push(instruction + reg);
-                        result.push(*data);
-                    }
-                    ImmediateToRegister::Wide(register, data) => {
-                        result.reserve_exact(1);
-                        let (reg, is_wide) = register.to_id();
-                        if !is_wide {
-                            panic!("Tried to store a word into a byte register")
-                        }
-                        result.push(instruction + 8 + reg);
-                        result.push((data % 256) as u8);
-                        result.push((data / 256) as u8);
-                    }
-                }
+                result.push(if *offset >= 0 {
+                    *offset as u8
+                } else {
+                    255 - (-*offset) as u8 + 1
+                });
                 result
             }
 
-            Instruction::ImmediateToRegisterOrMemory(mov) => {
-                let mut result = Vec::<u8>::with_capacity(3);
-                let opcode = 0b11000110u8;
-
-                match mov {
-                    ImmediateToRegisterOrMemory::Byte(address, data) => {
-                        result.push(opcode);
-                        Self::push_effective_address(address, 0, &mut result);
-                        result.push(*data);
-                    }
-                    ImmediateToRegisterOrMemory::Word(address, data) => {
-                        result.push(opcode + 1);
-                        Self::push_effective_address(address, 0, &mut result);
-                        result.push((data % 256) as u8);
-                        result.push((data / 256) as u8);
-                    }
-                }
-
-                result
-            }
-
-            Instruction::MemoryToAccumulator(mov) => {
-                let mut result = Vec::<u8>::with_capacity(3);
-                result.push(0b10100000u8 + if mov.is_wide { 1 } else { 0 });
-                result.push((mov.address % 256) as u8);
-                result.push((mov.address / 256) as u8);
-
-                result
-            }
-
-            Instruction::AccumulatorToMemory(mov) => {
-                let mut result = Vec::<u8>::with_capacity(3);
-                result.push(0b10100010u8 + if mov.is_wide { 1 } else { 0 });
-                result.push((mov.address % 256) as u8);
-                result.push((mov.address / 256) as u8);
-
-                result
-            }
+            Instruction::Trivia(_) => vec![],
         }
     }
 
-    fn mode_rm_to_eaddr<I>(mode: u8, rm: u8, bytes: &mut I) -> EffectiveAddress
-    where
-        I: Iterator<Item = u8>,
-    {
-        let source_dest = if rm % 2 == 0 {
-            SourceDest::Source
-        } else {
-            SourceDest::Dest
-        };
-        let base = if (rm / 2) % 2 == 0 {
-            Base::Bx
-        } else {
-            Base::Bp
-        };
-        let displacement_low = if rm == 6 || mode > 0 {
-            bytes.next().expect("required an 8-bit displacement")
-        } else {
-            0
-        };
-        let displacement_high = if (rm == 6 && mode == 0) || mode == 2 {
-            let high = bytes.next().expect("required a 16-bit displacement");
-            (high as u16) * 256 + (displacement_low as u16)
-        } else {
-            0
-        };
-
-        if rm < 4 {
-            match mode {
-                0 => EffectiveAddress::Sum(WithOffset::Basic((base, source_dest))),
-                1 => {
-                    EffectiveAddress::Sum(WithOffset::WithU8((base, source_dest), displacement_low))
-                }
-                2 => EffectiveAddress::Sum(WithOffset::WithU16(
-                    (base, source_dest),
-                    displacement_high,
-                )),
-                _ => panic!("Maths is wrong, got bad mode: {}", mode),
-            }
-        } else if rm < 6 {
-            match mode {
-                0 => EffectiveAddress::SpecifiedIn(WithOffset::Basic(source_dest)),
-                1 => {
-                    EffectiveAddress::SpecifiedIn(WithOffset::WithU8(source_dest, displacement_low))
-                }
-                2 => EffectiveAddress::SpecifiedIn(WithOffset::WithU16(
-                    source_dest,
-                    displacement_high,
-                )),
-                _ => panic!("Maths is wrong, got bad mode: {}", mode),
-            }
-        } else if rm == 6 {
-            match mode {
-                0 => EffectiveAddress::Direct(displacement_high),
-                1 => EffectiveAddress::BasePointer(displacement_low),
-                2 => EffectiveAddress::BasePointerWide(displacement_high),
-                _ => panic!("Maths is wrong, got bad mode: {}", mode),
-            }
-        } else {
-            assert_eq!(rm, 7);
-            match mode {
-                0 => EffectiveAddress::Bx(WithOffset::Basic(())),
-                1 => EffectiveAddress::Bx(WithOffset::WithU8((), displacement_low)),
-                2 => EffectiveAddress::Bx(WithOffset::WithU16((), displacement_high)),
-                _ => panic!("Maths is wrong, got bad mode: {}", mode),
-            }
-        }
-    }
-
-    fn consume<I>(bytes: &mut I) -> Option<Instruction>
+    fn consume<I>(bytes: &mut I) -> Option<Instruction<i8>>
     where
         I: Iterator<Item = u8>,
     {
@@ -606,7 +979,7 @@ impl Instruction {
                         };
                         Some(Instruction::RegRegMove(instruction))
                     } else {
-                        let mem_location = Self::mode_rm_to_eaddr(mode, rm, bytes);
+                        let mem_location = mode_rm_to_eaddr(mode, rm, bytes);
                         if d == 0 {
                             Some(Instruction::RegMemMove(RegMemMove {
                                 source: reg,
@@ -667,7 +1040,7 @@ impl Instruction {
                 let reg = (mod_reg_rm & 0b00111000) / 8;
                 let rm = mod_reg_rm & 0b00000111;
                 assert_eq!(reg, 0);
-                let dest = Self::mode_rm_to_eaddr(mode, rm, bytes);
+                let dest = mode_rm_to_eaddr(mode, rm, bytes);
 
                 let data_low = bytes.next().unwrap();
                 if w == 1 {
@@ -680,6 +1053,148 @@ impl Instruction {
                         ImmediateToRegisterOrMemory::Byte(dest, data_low),
                     ))
                 }
+            } else if (b & 0b11000100) == 0b00000000u8 {
+                // Arithmetic instruction, reg/memory with register to either
+                let op = ArithmeticOperation::of_byte((b & 0b00111000u8) / 8);
+                let is_wide = b % 2 == 1;
+                let d = (b / 2) % 2;
+                let mod_reg_rm = bytes.next().unwrap();
+                let mode = (mod_reg_rm & 0b11000000) / 64;
+                let reg = Register::of_id((mod_reg_rm & 0b00111000) / 8, is_wide);
+                let rm = mod_reg_rm & 0b00000111;
+                if mode == 3 {
+                    let rm = Register::of_id(rm, is_wide);
+
+                    let (source, dest) = if d == 0 { (reg, rm) } else { (rm, reg) };
+                    Some(Instruction::Arithmetic(ArithmeticInstruction {
+                        op,
+                        instruction: ArithmeticInstructionSelect::RegisterToRegister(
+                            RegRegArithmetic { source, dest },
+                        ),
+                    }))
+                } else {
+                    let mem_location = mode_rm_to_eaddr(mode, rm, bytes);
+                    if d == 0 {
+                        Some(Instruction::Arithmetic(ArithmeticInstruction {
+                            op,
+                            instruction: ArithmeticInstructionSelect::RegisterToMemory(
+                                RegMemArithmetic {
+                                    source: reg,
+                                    dest: mem_location,
+                                },
+                            ),
+                        }))
+                    } else {
+                        Some(Instruction::Arithmetic(ArithmeticInstruction {
+                            op,
+                            instruction: ArithmeticInstructionSelect::MemoryToRegister(
+                                MemRegArithmetic {
+                                    source: mem_location,
+                                    dest: reg,
+                                },
+                            ),
+                        }))
+                    }
+                }
+            } else if b & 0b11111100 == 0b10000000 {
+                // Immediate to register/memory
+                let w = b % 2;
+                let signed = (b / 2) % 2 == 1;
+                let mod_reg_rm = bytes.next().unwrap();
+                let mode = (mod_reg_rm & 0b11000000) / 64;
+                let op = ArithmeticOperation::of_byte((mod_reg_rm & 0b00111000) / 8);
+                let rm = mod_reg_rm & 0b00000111;
+                if mode == 3 {
+                    let data_low = bytes.next().unwrap();
+                    let dest = Register::of_id(rm, w == 1);
+                    Some(Instruction::Arithmetic(ArithmeticInstruction {
+                        op,
+                        instruction: if w == 0 || signed {
+                            ArithmeticInstructionSelect::ImmediateToRegisterByte(
+                                dest, data_low, signed,
+                            )
+                        } else {
+                            let data = (bytes.next().unwrap() as u16) * 256 + data_low as u16;
+                            ArithmeticInstructionSelect::ImmediateToRegisterWord(dest, data, signed)
+                        },
+                    }))
+                } else {
+                    let dest = mode_rm_to_eaddr(mode, rm, bytes);
+                    let data_low = bytes.next().unwrap();
+                    Some(Instruction::Arithmetic(ArithmeticInstruction {
+                        op,
+                        instruction: if w == 0 || signed {
+                            ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryByte(
+                                dest, data_low, signed,
+                            )
+                        } else {
+                            let data = (bytes.next().unwrap() as u16) * 256 + data_low as u16;
+                            ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryWord(dest, data)
+                        },
+                    }))
+                }
+            } else if b & 0b11000110u8 == 0b00000100 {
+                // Immediate to accumulator
+                let w = b % 2;
+                let data = bytes.next().unwrap();
+                let op = ArithmeticOperation::of_byte((b & 0b00111000) / 8);
+                Some(Instruction::Arithmetic(ArithmeticInstruction {
+                    op,
+                    instruction: if w == 0 {
+                        ArithmeticInstructionSelect::ImmediateToAccByte(data)
+                    } else {
+                        let data = 256 * (bytes.next().unwrap() as u16) + data as u16;
+                        ArithmeticInstructionSelect::ImmediateToAccWord(data)
+                    },
+                }))
+            } else if b & 0b11111100 == 0b11100000 {
+                // Loop
+                let next = bytes.next().unwrap();
+                let instruction = match b % 4 {
+                    0 => Jump::Loopnz,
+                    1 => Jump::Loopz,
+                    2 => Jump::Loop,
+                    3 => Jump::Jcxz,
+                    b => panic!("maths fail, {} is not a remainder mod 4", b),
+                };
+                Some(Instruction::Jump(
+                    instruction,
+                    if next >= 128 {
+                        (255 - next) as i8 - 1
+                    } else {
+                        next as i8
+                    },
+                ))
+            } else if b & 0b11110000 == 0b01110000 {
+                // Jump
+                let next = bytes.next().unwrap();
+                let instruction = match b % 16 {
+                    0 => Jump::Jo,
+                    1 => Jump::Jno,
+                    2 => Jump::Jb,
+                    3 => Jump::Jnb,
+                    4 => Jump::Je,
+                    5 => Jump::Jne,
+                    6 => Jump::Jbe,
+                    7 => Jump::Jnbe,
+                    8 => Jump::Js,
+                    9 => Jump::Jns,
+                    10 => Jump::Jp,
+                    11 => Jump::Jnp,
+                    12 => Jump::Jl,
+                    13 => Jump::Jnl,
+                    14 => Jump::Jle,
+                    15 => Jump::Jnle,
+                    b => panic!("maths fail, {} is not a remainder mod 16", b),
+                };
+                Some(Instruction::Jump(
+                    instruction,
+                    if next >= 128 {
+                        (255 - next) as i8 - 1
+                    } else {
+                        next as i8
+                    },
+                ))
             } else {
                 panic!("Unrecognised instruction byte: {}", b)
             }
@@ -690,17 +1205,19 @@ impl Instruction {
 }
 
 #[derive(Debug, Eq, PartialEq)]
-pub struct Program<T>
+pub struct Program<T, InstructionOffset>
 where
-    T: AsRef<[Instruction]>,
+    T: AsRef<[Instruction<InstructionOffset>]>,
 {
     bits: u8,
     instructions: T,
+    offset: PhantomData<InstructionOffset>,
 }
 
-impl<T> Display for Program<T>
+impl<T, InstructionOffset> Display for Program<T, InstructionOffset>
 where
-    T: AsRef<[Instruction]>,
+    T: AsRef<[Instruction<InstructionOffset>]>,
+    InstructionOffset: Display,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!("bits {}\n", self.bits))?;
@@ -711,9 +1228,57 @@ where
     }
 }
 
-impl<T> Program<T>
+impl<'a, T> Program<T, &'a str>
 where
-    T: AsRef<[Instruction]>,
+    T: AsRef<[Instruction<&'a str>]>,
+{
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut result = Vec::new();
+        if self.bits != 16 {
+            panic!("Only 16-bits supported");
+        }
+        let mut labels = HashMap::new();
+        for (counter, instruction) in self.instructions.as_ref().iter().enumerate() {
+            if let Instruction::Trivia(TriviaInstruction::Label(s)) = instruction {
+                if let Some(s) = labels.insert(*s, counter) {
+                    panic!("same label twice: {}", s)
+                }
+            }
+        }
+
+        let mut instruction_boundaries = vec![0; self.instructions.as_ref().len()];
+
+        for (counter, instruction) in self.instructions.as_ref().iter().enumerate() {
+            let new_bytes = Instruction::<&str>::to_bytes(instruction);
+            result.extend(new_bytes);
+            instruction_boundaries[counter] = result.len();
+        }
+
+        for (counter, instruction) in self.instructions.as_ref().iter().enumerate() {
+            if let Instruction::Jump(_, offset) = instruction {
+                let desired_target_instruction_number = match labels.get(offset) {
+                    Some(s) => *s,
+                    None => panic!("Tried to jump to label, but was not present: '{}'", offset),
+                };
+                let required_jump =
+                    (instruction_boundaries[desired_target_instruction_number] as i64
+                        - instruction_boundaries[counter] as i64) as i8;
+                let required_jump = if required_jump < 0 {
+                    255 - (-required_jump as u8) + 1
+                } else {
+                    required_jump as u8
+                };
+                result[instruction_boundaries[counter] - 1] = required_jump;
+            }
+        }
+
+        result
+    }
+}
+
+impl<T> Program<T, i8>
+where
+    T: AsRef<[Instruction<i8>]>,
 {
     pub fn to_bytes(&self) -> Vec<u8> {
         if self.bits != 16 {
@@ -722,25 +1287,27 @@ where
         self.instructions
             .as_ref()
             .iter()
-            .flat_map(Instruction::to_bytes)
+            .flat_map(Instruction::<i8>::to_bytes)
             .collect()
     }
 }
 
-impl Program<Vec<Instruction>> {
-    fn of_bytes<I>(mut bytes: I) -> Program<Vec<Instruction>>
+impl Program<Vec<Instruction<i8>>, i8> {
+    fn of_bytes<I>(mut bytes: I) -> Program<Vec<Instruction<i8>>, i8>
     where
         I: Iterator<Item = u8>,
     {
         let mut output = Vec::new();
 
         while let Some(i) = Instruction::consume(&mut bytes) {
+            // println!("{}", i);
             output.push(i);
         }
 
         Program {
             bits: 16,
             instructions: output,
+            offset: PhantomData,
         }
     }
 }
@@ -758,6 +1325,51 @@ struct Args {
     compiled_path: std::path::PathBuf,
     #[arg(value_name = "ASM_PATH")]
     asm_path: std::path::PathBuf,
+}
+
+fn program_equal_ignoring_labels<A, B>(
+    p1: &Program<Vec<Instruction<A>>, A>,
+    p2: &Program<Vec<Instruction<B>>, B>,
+) -> bool
+where
+    A: PartialEq,
+{
+    if p1.bits != p2.bits {
+        return false;
+    }
+
+    let without_trivia_1 = p1
+        .instructions
+        .iter()
+        .filter(|i| !matches!(i, Instruction::Trivia(_)));
+    let mut without_trivia_2 = p1
+        .instructions
+        .iter()
+        .filter(|i| !matches!(i, Instruction::Trivia(_)));
+
+    for i1 in without_trivia_1 {
+        if let Some(i2) = without_trivia_2.next() {
+            if i1 != i2 {
+                return false;
+            }
+        }
+    }
+
+    if without_trivia_2.next().is_some() {
+        return false;
+    }
+
+    true
+}
+
+impl<'a, T, U> PartialEq<Program<U, &'a str>> for Program<T, i8>
+where
+    T: AsRef<[Instruction<i8>]>,
+    U: AsRef<[Instruction<&'a str>]>,
+{
+    fn eq(&self, other: &Program<U, &'a str>) -> bool {
+        Program::<T, i8>::to_bytes(self) == Program::<U, &'a str>::to_bytes(other)
+    }
 }
 
 fn main() {
@@ -787,13 +1399,23 @@ fn main() {
     let disassembled = Program::of_bytes(expected_bytecode.iter().cloned());
 
     if disassembled != compiled {
-        println!("Program failed to disassemble back to the compiled version. Compiled:\n{}\nDisassembled again:\n{}", compiled, disassembled);
+        println!("Disassembled and compiled versions do not produce the same bytes. From disassembly:\n{}\nFrom assembling the input asm:\n{}", disassembled, compiled);
         std::process::exit(3)
+    }
+
+    if !program_equal_ignoring_labels(&disassembled, &compiled) {
+        println!("Program failed to disassemble back to the compiled version. Compiled:\n{}\nDisassembled again:\n{}", compiled, disassembled);
+        std::process::exit(4)
     }
 }
 
 #[cfg(test)]
 mod test_program {
+    use std::{
+        collections::{HashMap, HashSet},
+        marker::PhantomData,
+    };
+
     use crate::{
         register::{GeneralRegister, Register, RegisterSubset},
         ImmediateToRegister, Instruction, MemRegMove, Program,
@@ -801,11 +1423,46 @@ mod test_program {
 
     use super::assembly::program;
 
+    fn instruction_equal_ignoring_labels<A, B>(i1: &Instruction<A>, i2: &Instruction<B>) -> bool {
+        match (i1, i2) {
+            (Instruction::RegRegMove(i1), Instruction::RegRegMove(i2)) => i1 == i2,
+            (Instruction::RegRegMove(_), _) => false,
+            (Instruction::RegMemMove(i1), Instruction::RegMemMove(i2)) => i1 == i2,
+            (Instruction::RegMemMove(_), _) => false,
+            (Instruction::MemRegMove(i1), Instruction::MemRegMove(i2)) => i1 == i2,
+            (Instruction::MemRegMove(_), _) => false,
+            (Instruction::ImmediateToRegister(i1), Instruction::ImmediateToRegister(i2)) => {
+                i1 == i2
+            }
+            (Instruction::ImmediateToRegister(_), _) => false,
+            (
+                Instruction::ImmediateToRegisterOrMemory(i1),
+                Instruction::ImmediateToRegisterOrMemory(i2),
+            ) => i1 == i2,
+            (Instruction::ImmediateToRegisterOrMemory(_), _) => false,
+            (Instruction::MemoryToAccumulator(i1), Instruction::MemoryToAccumulator(i2)) => {
+                i1 == i2
+            }
+            (Instruction::MemoryToAccumulator(_), _) => false,
+            (Instruction::AccumulatorToMemory(i1), Instruction::AccumulatorToMemory(i2)) => {
+                i1 == i2
+            }
+            (Instruction::AccumulatorToMemory(_), _) => false,
+            (Instruction::Arithmetic(i1), Instruction::Arithmetic(i2)) => i1 == i2,
+            (Instruction::Arithmetic(_), _) => false,
+            (Instruction::Jump(i1, _), Instruction::Jump(i2, _)) => i1 == i2,
+            (Instruction::Jump(_, _), _) => false,
+            (Instruction::Trivia(_), Instruction::Trivia(_)) => true,
+            (Instruction::Trivia(_), _) => false,
+        }
+    }
+
     #[test]
     fn test_programs_with_different_instruction_sequences_are_not_equal() {
-        let program1 = Program {
+        let program1: Program<_, u8> = Program {
             bits: 64,
             instructions: vec![],
+            offset: PhantomData,
         };
         let program2 = Program {
             bits: 64,
@@ -813,6 +1470,7 @@ mod test_program {
                 Register::General(GeneralRegister::D, RegisterSubset::All),
                 1,
             ))],
+            offset: std::marker::PhantomData,
         };
 
         assert_ne!(program1, program2);
@@ -820,12 +1478,13 @@ mod test_program {
 
     #[test]
     fn test_programs_with_identical_instruction_sequences_are_equal() {
-        let program1 = Program {
+        let program1: Program<_, u8> = Program {
             bits: 64,
             instructions: vec![Instruction::ImmediateToRegister(ImmediateToRegister::Byte(
                 Register::General(GeneralRegister::D, RegisterSubset::All),
                 1,
             ))],
+            offset: PhantomData,
         };
         let program2 = Program {
             bits: 64,
@@ -833,20 +1492,37 @@ mod test_program {
                 Register::General(GeneralRegister::D, RegisterSubset::All),
                 1,
             ))],
+            offset: PhantomData,
         };
 
         assert_eq!(program1, program2);
     }
 
-    fn test_parser<T>(input_asm: &str, input_bytecode: T)
-    where
+    fn test_parser_lax<T>(
+        input_asm: &str,
+        input_bytecode: T,
+        permit_equivalences: HashMap<Instruction<&str>, Instruction<&str>>,
+    ) where
         T: AsRef<[u8]>,
     {
         let (remaining, parsed) = program(input_asm).unwrap();
         assert_eq!(remaining, "");
         assert_eq!(parsed.bits, 16);
 
-        for (i, (actual, expected)) in parsed
+        let adjusted_program: Program<Vec<Instruction<_>>, _> = Program {
+            bits: parsed.bits,
+            instructions: parsed
+                .instructions
+                .into_iter()
+                .map(|i| match permit_equivalences.get(&i) {
+                    Some(v) => v.clone(),
+                    None => i.clone(),
+                })
+                .collect(),
+            offset: PhantomData,
+        };
+
+        for (i, (actual, expected)) in adjusted_program
             .to_bytes()
             .iter()
             .zip(input_bytecode.as_ref().iter())
@@ -854,15 +1530,28 @@ mod test_program {
         {
             if actual != expected {
                 panic!(
-                    "Failed assertion: expected {}, got {}, at position {}",
-                    expected, actual, i
+                    "Failed assertion: expected {} (from Casey), got {}, at position {}\n{:?}",
+                    expected,
+                    actual,
+                    i,
+                    adjusted_program.to_bytes()
                 )
             }
         }
     }
 
-    fn test_disassembler<T>(input_asm: &str, input_bytecode: T)
+    fn test_parser<T>(input_asm: &str, input_bytecode: T)
     where
+        T: AsRef<[u8]>,
+    {
+        test_parser_lax(input_asm, input_bytecode, HashMap::new())
+    }
+
+    fn test_disassembler_lax<T>(
+        input_asm: &str,
+        input_bytecode: T,
+        permit_equivalences: HashSet<(Vec<u8>, Vec<u8>)>,
+    ) where
         T: AsRef<[u8]>,
     {
         let disassembled = Program::of_bytes(input_bytecode.as_ref().iter().cloned());
@@ -870,25 +1559,61 @@ mod test_program {
         let (remaining, pre_compiled) = program(&input_asm).unwrap();
         assert_eq!(remaining, "");
 
-        if disassembled != pre_compiled {
-            for (theirs, ours) in disassembled
-                .instructions
-                .iter()
-                .zip(pre_compiled.instructions.iter())
-            {
-                if theirs != ours {
-                    println!(
-                        "Different instruction. Ours: {ours} ({:?}). Theirs: {theirs} ({:?}).",
-                        ours.to_bytes(),
-                        theirs.to_bytes()
-                    );
+        let disassembled = disassembled.instructions.iter().filter(|i| match i {
+            Instruction::Trivia(_) => false,
+            _ => true,
+        });
+        let mut compiled = pre_compiled.instructions.iter().filter(|i| match i {
+            Instruction::Trivia(_) => false,
+            _ => true,
+        });
+
+        let mut is_different = false;
+
+        for dis in disassembled {
+            if let Some(compiled) = compiled.next() {
+                if !instruction_equal_ignoring_labels(dis, compiled) {
+                    let compiled_bytes = compiled.to_bytes();
+                    let dis_bytes = dis.to_bytes();
+                    if !permit_equivalences.contains(&(compiled_bytes.clone(), dis_bytes.clone()))
+                        && !permit_equivalences
+                            .contains(&(dis_bytes.clone(), compiled_bytes.clone()))
+                    {
+                        println!(
+                            "Different instruction. From disassembly: {dis} ({:?}). From our compilation: {compiled} ({:?}).",
+                            compiled_bytes,
+                            dis_bytes
+                        );
+                        is_different = true;
+                    }
                 }
+            } else {
+                println!(
+                    "Extra instruction from disassembly: {dis} ({:?})",
+                    dis.to_bytes()
+                );
+                is_different = true;
             }
-            panic!(
-                "Failed assertion. Our disassembly:\n{}\nReference:\n{}",
-                disassembled, pre_compiled
-            );
         }
+
+        while let Some(compiled) = compiled.next() {
+            println!(
+                "Extra instruction from compilation: {compiled} ({:?})",
+                compiled.to_bytes()
+            );
+            is_different = true;
+        }
+
+        if is_different {
+            panic!("Disassembling input bytecode produced a different program from compiling the input asm.")
+        }
+    }
+
+    fn test_disassembler<T>(input_asm: &str, input_bytecode: T)
+    where
+        T: AsRef<[u8]>,
+    {
+        test_disassembler_lax(input_asm, input_bytecode, HashSet::new())
     }
 
     #[test]
@@ -964,11 +1689,197 @@ mod test_program {
     }
 
     #[test]
+    fn test_add_sub_cmp_jnz_parser() {
+        let input_asm =
+            include_str!("../computer_enhance/perfaware/part1/listing_0041_add_sub_cmp_jnz.asm");
+        let input_bytecode =
+            include_bytes!("../computer_enhance/perfaware/part1/listing_0041_add_sub_cmp_jnz");
+        test_parser(input_asm, input_bytecode)
+    }
+
+    #[test]
+    fn test_add_sub_cmp_jnz_disassembler() {
+        let bytecode =
+            include_bytes!("../computer_enhance/perfaware/part1/listing_0041_add_sub_cmp_jnz");
+        let asm =
+            include_str!("../computer_enhance/perfaware/part1/listing_0041_add_sub_cmp_jnz.asm");
+        test_disassembler(asm, bytecode)
+    }
+
+    #[test]
+    fn test_immediate_movs_parser() {
+        let input_asm =
+            include_str!("../computer_enhance/perfaware/part1/listing_0043_immediate_movs.asm");
+        let input_bytecode =
+            include_bytes!("../computer_enhance/perfaware/part1/listing_0043_immediate_movs");
+        test_parser(input_asm, input_bytecode)
+    }
+
+    #[test]
+    fn test_immediate_movs_disassembler() {
+        let bytecode =
+            include_bytes!("../computer_enhance/perfaware/part1/listing_0043_immediate_movs");
+        let asm =
+            include_str!("../computer_enhance/perfaware/part1/listing_0043_immediate_movs.asm");
+        test_disassembler(asm, bytecode)
+    }
+
+    #[test]
+    fn test_register_movs_parser() {
+        let input_asm =
+            include_str!("../computer_enhance/perfaware/part1/listing_0044_register_movs.asm");
+        let input_bytecode =
+            include_bytes!("../computer_enhance/perfaware/part1/listing_0044_register_movs");
+        test_parser(input_asm, input_bytecode)
+    }
+
+    #[test]
+    fn test_register_movs_disassembler() {
+        let bytecode =
+            include_bytes!("../computer_enhance/perfaware/part1/listing_0044_register_movs");
+        let asm =
+            include_str!("../computer_enhance/perfaware/part1/listing_0044_register_movs.asm");
+        test_disassembler(asm, bytecode)
+    }
+
+    /*
+    We have not yet implemented the segment registers, so this test can't pass.
+        #[test]
+        fn test_challenge_register_movs_parser() {
+            let input_asm = include_str!(
+                "../computer_enhance/perfaware/part1/listing_0045_challenge_register_movs.asm"
+            );
+            let input_bytecode = include_bytes!(
+                "../computer_enhance/perfaware/part1/listing_0045_challenge_register_movs"
+            );
+            test_parser(input_asm, input_bytecode)
+        }
+
+        #[test]
+        fn test_challenge_register_movs_disassembler() {
+            let bytecode = include_bytes!(
+                "../computer_enhance/perfaware/part1/listing_0045_challenge_register_movs"
+            );
+            let asm = include_str!(
+                "../computer_enhance/perfaware/part1/listing_0045_challenge_register_movs.asm"
+            );
+            test_disassembler(asm, bytecode)
+        }
+    */
+
+    #[test]
+    fn test_add_sub_cmp_parser() {
+        let input_asm =
+            include_str!("../computer_enhance/perfaware/part1/listing_0046_add_sub_cmp.asm");
+        let input_bytecode =
+            include_bytes!("../computer_enhance/perfaware/part1/listing_0046_add_sub_cmp");
+        test_parser(input_asm, input_bytecode)
+    }
+
+    #[test]
+    fn test_add_sub_cmp_disassembler() {
+        let bytecode =
+            include_bytes!("../computer_enhance/perfaware/part1/listing_0046_add_sub_cmp");
+        let asm = include_str!("../computer_enhance/perfaware/part1/listing_0046_add_sub_cmp.asm");
+        test_disassembler(asm, bytecode)
+    }
+
+    #[test]
+    fn test_challenge_flags_parser() {
+        let input_asm =
+            include_str!("../computer_enhance/perfaware/part1/listing_0047_challenge_flags.asm");
+        let input_bytecode =
+            include_bytes!("../computer_enhance/perfaware/part1/listing_0047_challenge_flags");
+        test_parser(input_asm, input_bytecode)
+    }
+
+    #[test]
+    fn test_challenge_flags_disassembler() {
+        let bytecode =
+            include_bytes!("../computer_enhance/perfaware/part1/listing_0047_challenge_flags");
+        let asm =
+            include_str!("../computer_enhance/perfaware/part1/listing_0047_challenge_flags.asm");
+        test_disassembler(asm, bytecode)
+    }
+
+    #[test]
+    fn test_ip_register_parser() {
+        let input_asm =
+            include_str!("../computer_enhance/perfaware/part1/listing_0048_ip_register.asm");
+        let input_bytecode =
+            include_bytes!("../computer_enhance/perfaware/part1/listing_0048_ip_register");
+        test_parser(input_asm, input_bytecode)
+    }
+
+    #[test]
+    fn test_ip_register_disassembler() {
+        let bytecode =
+            include_bytes!("../computer_enhance/perfaware/part1/listing_0048_ip_register");
+        let asm = include_str!("../computer_enhance/perfaware/part1/listing_0048_ip_register.asm");
+        test_disassembler(asm, bytecode)
+    }
+
+    #[test]
+    fn test_conditional_jumps_parser() {
+        let input_asm =
+            include_str!("../computer_enhance/perfaware/part1/listing_0049_conditional_jumps.asm");
+        let input_bytecode =
+            include_bytes!("../computer_enhance/perfaware/part1/listing_0049_conditional_jumps");
+        test_parser(input_asm, input_bytecode)
+    }
+
+    #[test]
+    fn test_conditional_jumps_disassembler() {
+        let bytecode =
+            include_bytes!("../computer_enhance/perfaware/part1/listing_0049_conditional_jumps");
+        let asm =
+            include_str!("../computer_enhance/perfaware/part1/listing_0049_conditional_jumps.asm");
+        test_disassembler(asm, bytecode)
+    }
+
+    #[test]
+    fn test_challenge_jumps_parser() {
+        let input_asm =
+            include_str!("../computer_enhance/perfaware/part1/listing_0050_challenge_jumps.asm");
+        let input_bytecode =
+            include_bytes!("../computer_enhance/perfaware/part1/listing_0050_challenge_jumps");
+        let mut swaps = HashMap::new();
+        swaps.insert(
+            Instruction::Arithmetic(crate::ArithmeticInstruction {
+                op: crate::ArithmeticOperation::Add,
+                instruction: crate::ArithmeticInstructionSelect::ImmediateToAccWord(1),
+            }),
+            Instruction::Arithmetic(crate::ArithmeticInstruction {
+                op: crate::ArithmeticOperation::Add,
+                instruction: crate::ArithmeticInstructionSelect::ImmediateToRegisterWord(
+                    Register::General(GeneralRegister::A, RegisterSubset::All),
+                    1,
+                    true,
+                ),
+            }),
+        );
+        test_parser_lax(input_asm, input_bytecode, swaps)
+    }
+
+    #[test]
+    fn test_challenge_jumps_disassembler() {
+        let bytecode =
+            include_bytes!("../computer_enhance/perfaware/part1/listing_0050_challenge_jumps");
+        let asm =
+            include_str!("../computer_enhance/perfaware/part1/listing_0050_challenge_jumps.asm");
+        let mut allowed = HashSet::new();
+        // We implemented `add ax, 1` using "immediate to accumulator";
+        // in this example, Casey implemented it using "immediate to register".
+        allowed.insert((vec![5, 1, 0], vec![131, 192, 1]));
+        test_disassembler_lax(asm, bytecode, allowed)
+    }
+
+    #[test]
     fn mem_reg_move_to_bytes() {
         let i = Instruction::MemRegMove(MemRegMove {
             source: crate::EffectiveAddress::BasePointer(0),
             dest: Register::General(GeneralRegister::D, RegisterSubset::All),
         });
-        assert_eq!(i.to_bytes(), vec![139, 86, 0]);
+        assert_eq!(Instruction::<&str>::to_bytes(&i), vec![139, 86, 0]);
     }
 }
