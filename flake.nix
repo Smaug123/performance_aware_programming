@@ -23,7 +23,7 @@
     crate2nix,
     ...
   }: let
-    name = "performance_aware_programming";
+    name = "wrapper";
   in
     utils.lib.eachDefaultSystem
     (
