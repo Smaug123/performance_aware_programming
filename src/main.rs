@@ -867,34 +867,32 @@ impl<'a> Instruction<&'a str> {
             Instruction::AccumulatorToMemory(mov) => mov.to_bytes(),
             Instruction::Arithmetic(instruction) => instruction.to_bytes(),
             Instruction::Jump(instruction, _) => {
-                let mut result = Vec::<u8>::with_capacity(2);
-
-                result.push(match instruction {
-                    Jump::Je => 0b01110100,
-                    Jump::Jl => 0b11111100,
-                    Jump::Jle => 0b01111110,
-                    Jump::Jb => 0b01110010,
-                    Jump::Jbe => 0b01110110,
-                    Jump::Jp => 0b01111010,
-                    Jump::Jo => 0b01110000,
-                    Jump::Js => 0b01111000,
-                    Jump::Jne => 0b01110101,
-                    Jump::Jnl => 0b01111101,
-                    Jump::Jnle => 0b01111111,
-                    Jump::Jnb => 0b01110011,
-                    Jump::Jnbe => 0b01110111,
-                    Jump::Jnp => 0b01111011,
-                    Jump::Jno => 0b01110001,
-                    Jump::Jns => 0b01111001,
-                    Jump::Loop => 0b11100010,
-                    Jump::Loopz => 0b11100001,
-                    Jump::Loopnz => 0b11100000,
-                    Jump::Jcxz => 0b11100011,
-                });
-
-                // Placeholder destination which will be filled in later
-                result.push(0);
-                result
+                vec![
+                    match instruction {
+                        Jump::Je => 0b01110100,
+                        Jump::Jl => 0b11111100,
+                        Jump::Jle => 0b01111110,
+                        Jump::Jb => 0b01110010,
+                        Jump::Jbe => 0b01110110,
+                        Jump::Jp => 0b01111010,
+                        Jump::Jo => 0b01110000,
+                        Jump::Js => 0b01111000,
+                        Jump::Jne => 0b01110101,
+                        Jump::Jnl => 0b01111101,
+                        Jump::Jnle => 0b01111111,
+                        Jump::Jnb => 0b01110011,
+                        Jump::Jnbe => 0b01110111,
+                        Jump::Jnp => 0b01111011,
+                        Jump::Jno => 0b01110001,
+                        Jump::Jns => 0b01111001,
+                        Jump::Loop => 0b11100010,
+                        Jump::Loopz => 0b11100001,
+                        Jump::Loopnz => 0b11100000,
+                        Jump::Jcxz => 0b11100011,
+                    },
+                    // Placeholder destination which will be filled in later
+                    0,
+                ]
             }
 
             Instruction::Trivia(_) => vec![],
@@ -1262,8 +1260,9 @@ where
                     Some(s) => *s,
                     None => panic!("Tried to jump to label, but was not present: '{}'", offset),
                 };
-                let required_jump = instruction_boundaries[desired_target_instruction_number] as i8
-                    - instruction_boundaries[counter] as i8;
+                let required_jump =
+                    (instruction_boundaries[desired_target_instruction_number] as i64
+                        - instruction_boundaries[counter] as i64) as i8;
                 let required_jump = if required_jump < 0 {
                     255 - (-required_jump as u8) + 1
                 } else {

@@ -584,66 +584,70 @@ fn label(input: &str) -> IResult<&str, &str> {
     terminated(is_not(":\r\n \t"), terminated(char(':'), line_ending))(input)
 }
 
+fn label_terminator(input: &str) -> IResult<&str, &str> {
+    is_not("\r\n;")(input)
+}
+
 fn jump(input: &str) -> IResult<&str, (Jump, &str)> {
     alt((
-        map_res(preceded(tag("je "), is_not("\n")), |label| {
+        map_res(preceded(tag("je "), label_terminator), |label| {
             Ok::<_, ()>((Jump::Je, label))
         }),
-        map_res(preceded(tag("jnz "), is_not("\n")), |label| {
+        map_res(preceded(tag("jnz "), label_terminator), |label| {
             Ok::<_, ()>((Jump::Jne, label))
         }),
-        map_res(preceded(tag("jnl "), is_not("\n")), |label| {
+        map_res(preceded(tag("jnl "), label_terminator), |label| {
             Ok::<_, ()>((Jump::Jnl, label))
         }),
-        map_res(preceded(tag("jb "), is_not("\n")), |label| {
+        map_res(preceded(tag("jb "), label_terminator), |label| {
             Ok::<_, ()>((Jump::Jb, label))
         }),
-        map_res(preceded(tag("jnb "), is_not("\n")), |label| {
+        map_res(preceded(tag("jnb "), label_terminator), |label| {
             Ok::<_, ()>((Jump::Jnb, label))
         }),
-        map_res(preceded(tag("jbe "), is_not("\n")), |label| {
+        map_res(preceded(tag("jbe "), label_terminator), |label| {
             Ok::<_, ()>((Jump::Jbe, label))
         }),
-        map_res(preceded(tag("jl "), is_not("\n")), |label| {
+        map_res(preceded(tag("jl "), label_terminator), |label| {
             Ok::<_, ()>((Jump::Jl, label))
         }),
-        map_res(preceded(tag("jg "), is_not("\n")), |label| {
+        map_res(preceded(tag("jg "), label_terminator), |label| {
             Ok::<_, ()>((Jump::Jnle, label))
         }),
-        map_res(preceded(tag("jle "), is_not("\n")), |label| {
+        map_res(preceded(tag("jle "), label_terminator), |label| {
             Ok::<_, ()>((Jump::Jle, label))
         }),
-        map_res(preceded(tag("jo "), is_not("\n")), |label| {
+        map_res(preceded(tag("jo "), label_terminator), |label| {
             Ok::<_, ()>((Jump::Jo, label))
         }),
-        map_res(preceded(tag("jp "), is_not("\n")), |label| {
+        map_res(preceded(tag("jp "), label_terminator), |label| {
             Ok::<_, ()>((Jump::Jp, label))
         }),
-        map_res(preceded(tag("js "), is_not("\n")), |label| {
+        map_res(preceded(tag("js "), label_terminator), |label| {
             Ok::<_, ()>((Jump::Js, label))
         }),
-        map_res(preceded(tag("ja "), is_not("\n")), |label| {
+        map_res(preceded(tag("ja "), label_terminator), |label| {
             Ok::<_, ()>((Jump::Jnbe, label))
         }),
-        map_res(preceded(tag("jnp "), is_not("\n")), |label| {
+        map_res(preceded(tag("jnp "), label_terminator), |label| {
             Ok::<_, ()>((Jump::Jnp, label))
         }),
-        map_res(preceded(tag("jno "), is_not("\n")), |label| {
+        map_res(preceded(tag("jno "), label_terminator), |label| {
             Ok::<_, ()>((Jump::Jno, label))
         }),
-        map_res(preceded(tag("jns "), is_not("\n")), |label| {
+        map_res(preceded(tag("jns "), label_terminator), |label| {
             Ok::<_, ()>((Jump::Jns, label))
         }),
-        map_res(preceded(tag("loop "), is_not("\n")), |label| {
+        map_res(preceded(tag("loop "), label_terminator), |label| {
             Ok::<_, ()>((Jump::Loop, label))
         }),
-        map_res(preceded(tag("loopz "), is_not("\n")), |label| {
+        map_res(preceded(tag("loopz "), label_terminator), |label| {
             Ok::<_, ()>((Jump::Loopz, label))
         }),
-        map_res(preceded(tag("loopnz "), is_not("\n")), |label| {
+        map_res(preceded(tag("loopnz "), label_terminator), |label| {
             Ok::<_, ()>((Jump::Loopnz, label))
         }),
-        map_res(preceded(tag("jcxz "), is_not("\n")), |label| {
+        map_res(preceded(tag("jcxz "), label_terminator), |label| {
             Ok::<_, ()>((Jump::Jcxz, label))
         }),
         // a duplicate! check this
