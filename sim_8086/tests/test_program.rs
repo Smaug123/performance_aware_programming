@@ -412,4 +412,102 @@ mod test_program {
         allowed.insert((vec![5, 1, 0], vec![131, 192, 1]));
         test_disassembler_lax(asm, bytecode, allowed)
     }
+
+    #[test]
+    fn test_memory_mov_parser() {
+        let input_asm =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0051_memory_mov.asm");
+        let input_bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0051_memory_mov");
+        test_parser(input_asm, input_bytecode)
+    }
+
+    #[test]
+    fn test_memory_mov_disassembler() {
+        let bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0051_memory_mov");
+        let asm =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0051_memory_mov.asm");
+        test_disassembler(asm, bytecode)
+    }
+
+    #[test]
+    fn test_memory_add_loop_parser() {
+        let input_asm =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0052_memory_add_loop.asm");
+        let input_bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0052_memory_add_loop");
+        test_parser(input_asm, input_bytecode)
+    }
+
+    #[test]
+    fn test_memory_add_loop_disassembler() {
+        let bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0052_memory_add_loop");
+        let asm =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0052_memory_add_loop.asm");
+        test_disassembler(asm, bytecode)
+    }
+
+    #[test]
+    fn test_add_loop_challenge_parser() {
+        let input_asm = include_str!(
+            "../../computer_enhance/perfaware/part1/listing_0053_add_loop_challenge.asm"
+        );
+        let input_bytecode = include_bytes!(
+            "../../computer_enhance/perfaware/part1/listing_0053_add_loop_challenge"
+        );
+        test_parser(input_asm, input_bytecode)
+    }
+
+    #[test]
+    fn test_add_loop_challenge_disassembler() {
+        let bytecode = include_bytes!(
+            "../../computer_enhance/perfaware/part1/listing_0053_add_loop_challenge"
+        );
+        let asm = include_str!(
+            "../../computer_enhance/perfaware/part1/listing_0053_add_loop_challenge.asm"
+        );
+        test_disassembler(asm, bytecode)
+    }
+
+    #[test]
+    fn test_draw_rectangle_parser() {
+        let input_asm =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0054_draw_rectangle.asm");
+        let input_bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0054_draw_rectangle");
+        test_parser(input_asm, input_bytecode)
+    }
+
+    #[test]
+    fn test_draw_rectangle_disassembler() {
+        let bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0054_draw_rectangle");
+        let asm =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0054_draw_rectangle.asm");
+        test_disassembler(asm, bytecode)
+    }
+
+    #[test]
+    fn test_challenge_rectangle_parser() {
+        let input_asm = include_str!(
+            "../../computer_enhance/perfaware/part1/listing_0055_challenge_rectangle.asm"
+        );
+        let input_bytecode = include_bytes!(
+            "../../computer_enhance/perfaware/part1/listing_0055_challenge_rectangle"
+        );
+        test_parser(input_asm, input_bytecode)
+    }
+
+    #[test]
+    fn test_challenge_rectangle_disassembler() {
+        let bytecode = include_bytes!(
+            "../../computer_enhance/perfaware/part1/listing_0055_challenge_rectangle"
+        );
+        let asm = include_str!(
+            "../../computer_enhance/perfaware/part1/listing_0055_challenge_rectangle.asm"
+        );
+        test_disassembler(asm, bytecode)
+    }
 }
