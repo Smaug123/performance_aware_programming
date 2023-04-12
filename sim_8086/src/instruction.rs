@@ -8,7 +8,7 @@ use crate::{
     effective_address::EffectiveAddress,
     jump_instruction::Jump,
     move_instruction::{
-        AccumulatorToMemory, ImmediateToRegister, ImmediateToRegisterOrMemory, MemRegMove,
+        AccumulatorToMemory, ImmediateToMemory, ImmediateToRegister, MemRegMove,
         MemoryToAccumulator, MoveInstruction, RegMemMove, RegRegMove,
     },
     register::Register,
@@ -263,17 +263,13 @@ impl Instruction<i8> {
                 let data_low = bytes.next().unwrap();
                 if w == 1 {
                     let data_high = bytes.next().unwrap() as u16 * 256;
-                    Some(Instruction::Move(
-                        MoveInstruction::ImmediateToRegisterOrMemory(
-                            ImmediateToRegisterOrMemory::Word(dest, data_high + data_low as u16),
-                        ),
-                    ))
+                    Some(Instruction::Move(MoveInstruction::ImmediateToMemory(
+                        ImmediateToMemory::Word(dest, data_high + data_low as u16),
+                    )))
                 } else {
-                    Some(Instruction::Move(
-                        MoveInstruction::ImmediateToRegisterOrMemory(
-                            ImmediateToRegisterOrMemory::Byte(dest, data_low),
-                        ),
-                    ))
+                    Some(Instruction::Move(MoveInstruction::ImmediateToMemory(
+                        ImmediateToMemory::Byte(dest, data_low),
+                    )))
                 }
             } else if (b & 0b11000100) == 0b00000000u8 {
                 // Arithmetic instruction, reg/memory with register to either

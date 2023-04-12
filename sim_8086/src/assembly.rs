@@ -19,7 +19,7 @@ use crate::{
     instruction::Instruction,
     jump_instruction::Jump,
     move_instruction::{
-        AccumulatorToMemory, ImmediateToRegister, ImmediateToRegisterOrMemory, MemRegMove,
+        AccumulatorToMemory, ImmediateToMemory, ImmediateToRegister, MemRegMove,
         MemoryToAccumulator, MoveInstruction, RegMemMove, RegRegMove,
     },
     program::Program,
@@ -421,7 +421,7 @@ fn immediate_to_register_instruction(input: &str) -> IResult<&str, ImmediateToRe
     )(input)
 }
 
-fn immediate_to_memory_instruction(input: &str) -> IResult<&str, ImmediateToRegisterOrMemory> {
+fn immediate_to_memory_instruction(input: &str) -> IResult<&str, ImmediateToMemory> {
     map_res(
         tuple((
             terminated(preceded(tag("mov "), effective_address), argument_sep),
@@ -432,8 +432,8 @@ fn immediate_to_memory_instruction(input: &str) -> IResult<&str, ImmediateToRegi
         )),
         |(addr, x)| {
             Ok::<_, ()>(match x {
-                Ok(b) => ImmediateToRegisterOrMemory::Byte(addr, b),
-                Err(b) => ImmediateToRegisterOrMemory::Word(addr, b),
+                Ok(b) => ImmediateToMemory::Byte(addr, b),
+                Err(b) => ImmediateToMemory::Word(addr, b),
             })
         },
     )(input)
@@ -728,7 +728,7 @@ fn move_instruction(input: &str) -> IResult<&str, MoveInstruction> {
             Ok::<_, ()>(MoveInstruction::ImmediateToRegister(v))
         }),
         map_res(immediate_to_memory_instruction, |v| {
-            Ok::<_, ()>(MoveInstruction::ImmediateToRegisterOrMemory(v))
+            Ok::<_, ()>(MoveInstruction::ImmediateToMemory(v))
         }),
     ))(input)
 }

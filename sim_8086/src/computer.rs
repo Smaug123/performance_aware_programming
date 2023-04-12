@@ -1,7 +1,11 @@
 use crate::{
+    effective_address::{EffectiveAddress, WithOffset},
     instruction::Instruction,
-    move_instruction::{ImmediateToRegister, ImmediateToRegisterOrMemory, MoveInstruction},
-    register::{ByteRegisterSubset, GeneralRegister, Register, RegisterSubset, SpecialRegister},
+    move_instruction::{ImmediateToMemory, ImmediateToRegister, MoveInstruction},
+    register::{
+        Base, ByteRegisterSubset, GeneralRegister, Register, RegisterSubset, SourceDest,
+        SpecialRegister,
+    },
 };
 
 pub struct Registers {
@@ -179,22 +183,208 @@ impl Computer {
         )
     }
 
+    fn get_memory_byte(&self, index: usize) -> u8 {
+        self.memory[index]
+    }
+
+    fn get_memory_word(&self, index: usize) -> u16 {
+        self.memory[index] as u16 * 256 + self.memory[index + 1] as u16
+    }
+
+    fn set_memory_byte(&mut self, index: usize, value: u8) -> String {
+        self.memory[index] = value;
+        "todo".to_owned()
+    }
+
+    fn set_memory_word(&mut self, index: usize, value: u16) -> String {
+        self.memory[index] = (value % 256) as u8;
+        self.memory[index + 1] = (value / 256) as u8;
+        "todo".to_owned()
+    }
+
+    fn resolve_eaddr(&self, a: &EffectiveAddress) -> usize {
+        match a {
+            EffectiveAddress::Sum(WithOffset::Basic((base, source_dest))) => {
+                let base_offset = match base {
+                    Base::Bp => self.get_register(&Register::Special(SpecialRegister::BasePointer)),
+                    Base::Bx => self
+                        .get_register(&Register::General(GeneralRegister::B, RegisterSubset::All)),
+                };
+                let source_offset = match source_dest {
+                    SourceDest::Source => {
+                        self.get_register(&Register::Special(SpecialRegister::SourceIndex))
+                    }
+                    SourceDest::Dest => {
+                        self.get_register(&Register::Special(SpecialRegister::DestIndex))
+                    }
+                };
+                base_offset as usize + source_offset as usize
+            }
+            EffectiveAddress::Sum(WithOffset::WithU8((base, source_dest), addend)) => {
+                let base_offset = match base {
+                    Base::Bp => self.get_register(&Register::Special(SpecialRegister::BasePointer)),
+                    Base::Bx => self
+                        .get_register(&Register::General(GeneralRegister::B, RegisterSubset::All)),
+                };
+                let source_offset = match source_dest {
+                    SourceDest::Source => {
+                        self.get_register(&Register::Special(SpecialRegister::SourceIndex))
+                    }
+                    SourceDest::Dest => {
+                        self.get_register(&Register::Special(SpecialRegister::DestIndex))
+                    }
+                };
+                base_offset as usize + source_offset as usize + *addend as usize
+            }
+            EffectiveAddress::Sum(WithOffset::WithU16((base, source_dest), addend)) => {
+                let base_offset = match base {
+                    Base::Bp => self.get_register(&Register::Special(SpecialRegister::BasePointer)),
+                    Base::Bx => self
+                        .get_register(&Register::General(GeneralRegister::B, RegisterSubset::All)),
+                };
+                let source_offset = match source_dest {
+                    SourceDest::Source => {
+                        self.get_register(&Register::Special(SpecialRegister::SourceIndex))
+                    }
+                    SourceDest::Dest => {
+                        self.get_register(&Register::Special(SpecialRegister::DestIndex))
+                    }
+                };
+                base_offset as usize + source_offset as usize + *addend as usize
+            }
+            EffectiveAddress::SpecifiedIn(WithOffset::Basic(source_dest)) => {
+                let source_offset = match source_dest {
+                    SourceDest::Source => {
+                        self.get_register(&Register::Special(SpecialRegister::SourceIndex))
+                    }
+                    SourceDest::Dest => {
+                        self.get_register(&Register::Special(SpecialRegister::DestIndex))
+                    }
+                };
+                source_offset as usize
+            }
+            EffectiveAddress::SpecifiedIn(WithOffset::WithU8(source_dest, offset)) => {
+                let source_offset = match source_dest {
+                    SourceDest::Source => {
+                        self.get_register(&Register::Special(SpecialRegister::SourceIndex))
+                    }
+                    SourceDest::Dest => {
+                        self.get_register(&Register::Special(SpecialRegister::DestIndex))
+                    }
+                };
+                source_offset as usize + *offset as usize
+            }
+            EffectiveAddress::SpecifiedIn(WithOffset::WithU16(source_dest, offset)) => {
+                let source_offset = match source_dest {
+                    SourceDest::Source => {
+                        self.get_register(&Register::Special(SpecialRegister::SourceIndex))
+                    }
+                    SourceDest::Dest => {
+                        self.get_register(&Register::Special(SpecialRegister::DestIndex))
+                    }
+                };
+                source_offset as usize + *offset as usize
+            }
+            EffectiveAddress::Bx(WithOffset::Basic(())) => {
+                let bx =
+                    self.get_register(&Register::General(GeneralRegister::B, RegisterSubset::All));
+                bx as usize
+            }
+            EffectiveAddress::Bx(WithOffset::WithU8((), offset)) => {
+                let bx =
+                    self.get_register(&Register::General(GeneralRegister::B, RegisterSubset::All));
+                bx as usize + *offset as usize
+            }
+            EffectiveAddress::Bx(WithOffset::WithU16((), offset)) => {
+                let bx =
+                    self.get_register(&Register::General(GeneralRegister::B, RegisterSubset::All));
+                bx as usize + *offset as usize
+            }
+            EffectiveAddress::Direct(addr) => *addr as usize,
+            EffectiveAddress::BasePointer(offset) => {
+                let bp = self.get_register(&Register::Special(SpecialRegister::BasePointer));
+                bp as usize + *offset as usize
+            }
+            EffectiveAddress::BasePointerWide(offset) => {
+                let bp = self.get_register(&Register::Special(SpecialRegister::BasePointer));
+                bp as usize + *offset as usize
+            }
+        }
+    }
+
     fn step_mov(&mut self, instruction: &MoveInstruction) -> String {
         let preamble = format!("{}", instruction);
         let description = match &instruction {
-            MoveInstruction::RegRegMove(_) => todo!(),
-            MoveInstruction::RegMemMove(_) => todo!(),
-            MoveInstruction::MemRegMove(_) => todo!(),
+            MoveInstruction::RegRegMove(mov) => {
+                let value = self.get_register(&mov.source);
+                self.set_register(&mov.dest, value)
+            }
+            MoveInstruction::RegMemMove(mov) => {
+                let value = self.get_register(&mov.source);
+                if mov.source.is_wide() {
+                    self.set_memory_word(self.resolve_eaddr(&mov.dest), value)
+                } else {
+                    self.set_memory_byte(self.resolve_eaddr(&mov.dest), value as u8)
+                }
+            }
+            MoveInstruction::MemRegMove(mov) => {
+                if mov.dest.is_wide() {
+                    let value = self.get_memory_word(self.resolve_eaddr(&mov.source));
+                    self.set_register(&mov.dest, value)
+                } else {
+                    let value = self.get_memory_byte(self.resolve_eaddr(&mov.source));
+                    self.set_register(&mov.dest, value as u16)
+                }
+            }
             MoveInstruction::ImmediateToRegister(mov) => match mov {
                 ImmediateToRegister::Byte(dest, value) => self.set_register(dest, *value as u16),
                 ImmediateToRegister::Wide(dest, value) => self.set_register(dest, *value),
             },
-            MoveInstruction::ImmediateToRegisterOrMemory(mov) => match mov {
-                ImmediateToRegisterOrMemory::Byte(_, _) => todo!(),
-                ImmediateToRegisterOrMemory::Word(_, _) => todo!(),
+            MoveInstruction::ImmediateToMemory(mov) => match mov {
+                ImmediateToMemory::Byte(addr, value) => {
+                    let dest = self.resolve_eaddr(addr);
+                    self.set_memory_byte(dest, *value)
+                }
+                ImmediateToMemory::Word(addr, value) => {
+                    let dest = self.resolve_eaddr(addr);
+                    self.set_memory_word(dest, *value)
+                }
             },
-            MoveInstruction::MemoryToAccumulator(_) => todo!(),
-            MoveInstruction::AccumulatorToMemory(_) => todo!(),
+            MoveInstruction::MemoryToAccumulator(mov) => {
+                if mov.is_wide {
+                    self.set_register(
+                        &Register::General(GeneralRegister::A, RegisterSubset::All),
+                        self.get_memory_word(mov.address as usize),
+                    )
+                } else {
+                    self.set_register(
+                        &Register::General(
+                            GeneralRegister::A,
+                            RegisterSubset::Subset(ByteRegisterSubset::Low),
+                        ),
+                        self.get_memory_byte(mov.address as usize) as u16,
+                    )
+                }
+            }
+            MoveInstruction::AccumulatorToMemory(mov) => {
+                if mov.is_wide {
+                    self.set_memory_word(
+                        mov.address as usize,
+                        self.get_register(&Register::General(
+                            GeneralRegister::A,
+                            RegisterSubset::All,
+                        )),
+                    )
+                } else {
+                    self.set_memory_byte(
+                        mov.address as usize,
+                        self.get_register(&Register::General(
+                            GeneralRegister::A,
+                            RegisterSubset::Subset(ByteRegisterSubset::Low),
+                        )) as u8,
+                    )
+                }
+            }
         };
         format!("{} ; {}", preamble, description)
     }
