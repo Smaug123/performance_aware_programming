@@ -89,4 +89,8 @@ fn main() {
         println!("Program failed to disassemble back to the compiled version. Compiled:\n{}\nDisassembled again:\n{}", compiled, disassembled);
         std::process::exit(4)
     }
+
+    println!(
+        "Our assembly was equal to the reference, and it disassembled back to the same structure."
+    )
 }
