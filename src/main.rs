@@ -870,7 +870,7 @@ impl<'a> Instruction<&'a str> {
                 vec![
                     match instruction {
                         Jump::Je => 0b01110100,
-                        Jump::Jl => 0b11111100,
+                        Jump::Jl => 0b01111100,
                         Jump::Jle => 0b01111110,
                         Jump::Jb => 0b01110010,
                         Jump::Jbe => 0b01110110,
@@ -1530,8 +1530,11 @@ mod test_program {
         {
             if actual != expected {
                 panic!(
-                    "Failed assertion: expected {} (from Casey), got {}, at position {}",
-                    expected, actual, i
+                    "Failed assertion: expected {} (from Casey), got {}, at position {}\n{:?}",
+                    expected,
+                    actual,
+                    i,
+                    adjusted_program.to_bytes()
                 )
             }
         }
