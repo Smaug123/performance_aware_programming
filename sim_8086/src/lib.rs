@@ -1,5 +1,6 @@
 pub mod arithmetic_instruction;
 pub mod assembly;
+pub mod computer;
 pub mod effective_address;
 pub mod instruction;
 pub mod jump_instruction;

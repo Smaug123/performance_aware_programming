@@ -119,3 +119,62 @@ where
         Program::<T, i8>::to_bytes(self) == Program::<U, &'a str>::to_bytes(other)
     }
 }
+
+#[cfg(test)]
+mod test_program {
+    use std::marker::PhantomData;
+
+    use crate::{
+        instruction::Instruction,
+        move_instruction::{ImmediateToRegister, MoveInstruction},
+        program::Program,
+        register::{GeneralRegister, Register, RegisterSubset},
+    };
+
+    #[test]
+    fn test_programs_with_different_instruction_sequences_are_not_equal() {
+        let program1: Program<_, u8> = Program {
+            bits: 64,
+            instructions: vec![],
+            offset: PhantomData,
+        };
+        let program2 = Program {
+            bits: 64,
+            instructions: vec![Instruction::Move(MoveInstruction::ImmediateToRegister(
+                ImmediateToRegister::Byte(
+                    Register::General(GeneralRegister::D, RegisterSubset::All),
+                    1,
+                ),
+            ))],
+            offset: std::marker::PhantomData,
+        };
+
+        assert_ne!(program1, program2);
+    }
+
+    #[test]
+    fn test_programs_with_identical_instruction_sequences_are_equal() {
+        let program1: Program<_, u8> = Program {
+            bits: 64,
+            instructions: vec![Instruction::Move(MoveInstruction::ImmediateToRegister(
+                ImmediateToRegister::Byte(
+                    Register::General(GeneralRegister::D, RegisterSubset::All),
+                    1,
+                ),
+            ))],
+            offset: PhantomData,
+        };
+        let program2 = Program {
+            bits: 64,
+            instructions: vec![Instruction::Move(MoveInstruction::ImmediateToRegister(
+                ImmediateToRegister::Byte(
+                    Register::General(GeneralRegister::D, RegisterSubset::All),
+                    1,
+                ),
+            ))],
+            offset: PhantomData,
+        };
+
+        assert_eq!(program1, program2);
+    }
+}
