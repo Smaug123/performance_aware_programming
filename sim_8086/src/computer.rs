@@ -3,8 +3,8 @@ use crate::{
     instruction::Instruction,
     move_instruction::{ImmediateToMemory, ImmediateToRegister, MoveInstruction},
     register::{
-        Base, ByteRegisterSubset, GeneralRegister, Register, RegisterSubset, SourceDest,
-        SpecialRegister,
+        Base, ByteRegisterSubset, GeneralRegister, Register, RegisterSubset, SegmentRegister,
+        SourceDest, SpecialRegister,
     },
 };
 
@@ -17,6 +17,10 @@ pub struct Registers {
     di: u16,
     sp: u16,
     bp: u16,
+    ss: u16,
+    cs: u16,
+    es: u16,
+    ds: u16,
 }
 
 pub struct Computer {
@@ -39,6 +43,10 @@ impl Computer {
                 di: 0,
                 sp: 0,
                 bp: 0,
+                ss: 0,
+                cs: 0,
+                es: 0,
+                ds: 0,
             },
         }
     }
@@ -87,6 +95,15 @@ impl Computer {
             Register::Special(SpecialRegister::StackPointer) => self.registers.sp,
             Register::Special(SpecialRegister::SourceIndex) => self.registers.si,
             Register::Special(SpecialRegister::DestIndex) => self.registers.di,
+        }
+    }
+
+    fn get_segment(&self, r: SegmentRegister) -> u16 {
+        match r {
+            SegmentRegister::Code => self.registers.cs,
+            SegmentRegister::Data => self.registers.ds,
+            SegmentRegister::Stack => self.registers.ss,
+            SegmentRegister::Extra => self.registers.es,
         }
     }
 
@@ -175,6 +192,23 @@ impl Computer {
             Register::Special(SpecialRegister::DestIndex) => self.registers.di = value,
         }
         let is_now = self.get_register(r);
+        format!(
+            "{}:{}->{}",
+            r,
+            Self::display_small(was),
+            Self::display_small(is_now)
+        )
+    }
+
+    fn set_segment(&mut self, r: SegmentRegister, value: u16) -> String {
+        let was = self.get_segment(r);
+        match r {
+            SegmentRegister::Code => self.registers.cs = value,
+            SegmentRegister::Data => self.registers.ds = value,
+            SegmentRegister::Stack => self.registers.ss = value,
+            SegmentRegister::Extra => self.registers.es = value,
+        }
+        let is_now = self.get_segment(r);
         format!(
             "{}:{}->{}",
             r,
@@ -384,6 +418,23 @@ impl Computer {
                         )) as u8,
                     )
                 }
+            }
+            MoveInstruction::SegmentToMemory(mov) => {
+                let v = self.get_segment(mov.source);
+                let dest = self.resolve_eaddr(&mov.dest);
+                self.set_memory_word(dest, v)
+            }
+            MoveInstruction::MemoryToSegment(mov) => {
+                let value = self.get_memory_word(self.resolve_eaddr(&mov.source));
+                self.set_segment(mov.dest, value)
+            }
+            MoveInstruction::SegmentToRegister(mov) => {
+                let v = self.get_segment(mov.source);
+                self.set_register(&mov.dest, v)
+            }
+            MoveInstruction::RegisterToSegment(mov) => {
+                let value = self.get_register(&mov.source);
+                self.set_segment(mov.dest, value)
             }
         };
         format!("{} ; {}", preamble, description)

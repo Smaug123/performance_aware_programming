@@ -111,8 +111,8 @@ mod test_program {
                     {
                         println!(
                             "Different instruction. From disassembly: {dis} ({:?}). From our compilation: {compiled} ({:?}).",
-                            compiled_bytes,
-                            dis_bytes
+                            dis_bytes,
+                            compiled_bytes
                         );
                         is_different = true;
                     }
@@ -277,30 +277,27 @@ mod test_program {
         test_disassembler(asm, bytecode)
     }
 
-    /*
-    We have not yet implemented the segment registers, so this test can't pass.
-        #[test]
-        fn test_challenge_register_movs_parser() {
-            let input_asm = include_str!(
-                "../../computer_enhance/perfaware/part1/listing_0045_challenge_register_movs.asm"
-            );
-            let input_bytecode = include_bytes!(
-                "../../computer_enhance/perfaware/part1/listing_0045_challenge_register_movs"
-            );
-            test_parser(input_asm, input_bytecode)
-        }
+    #[test]
+    fn test_challenge_register_movs_parser() {
+        let input_asm = include_str!(
+            "../../computer_enhance/perfaware/part1/listing_0045_challenge_register_movs.asm"
+        );
+        let input_bytecode = include_bytes!(
+            "../../computer_enhance/perfaware/part1/listing_0045_challenge_register_movs"
+        );
+        test_parser(input_asm, input_bytecode)
+    }
 
-        #[test]
-        fn test_challenge_register_movs_disassembler() {
-            let bytecode = include_bytes!(
-                "../../computer_enhance/perfaware/part1/listing_0045_challenge_register_movs"
-            );
-            let asm = include_str!(
-                "../../computer_enhance/perfaware/part1/listing_0045_challenge_register_movs.asm"
-            );
-            test_disassembler(asm, bytecode)
-        }
-    */
+    #[test]
+    fn test_challenge_register_movs_disassembler() {
+        let bytecode = include_bytes!(
+            "../../computer_enhance/perfaware/part1/listing_0045_challenge_register_movs"
+        );
+        let asm = include_str!(
+            "../../computer_enhance/perfaware/part1/listing_0045_challenge_register_movs.asm"
+        );
+        test_disassembler(asm, bytecode)
+    }
 
     #[test]
     fn test_add_sub_cmp_parser() {

@@ -104,6 +104,37 @@ impl Display for RegisterSubset {
     }
 }
 
+#[derive(Eq, PartialEq, Debug, Hash, Clone, Copy)]
+pub enum SegmentRegister {
+    Code = 1,
+    Data = 3,
+    Stack = 2,
+    Extra = 0,
+}
+
+impl Display for SegmentRegister {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SegmentRegister::Code => f.write_str("cs"),
+            SegmentRegister::Data => f.write_str("ds"),
+            SegmentRegister::Stack => f.write_str("ss"),
+            SegmentRegister::Extra => f.write_str("es"),
+        }
+    }
+}
+
+impl SegmentRegister {
+    pub const fn of_byte(b: u8) -> SegmentRegister {
+        match b {
+            0 => SegmentRegister::Extra,
+            1 => SegmentRegister::Code,
+            2 => SegmentRegister::Stack,
+            3 => SegmentRegister::Data,
+            _ => concat_panic!("Bad byte for stack register: {}", b),
+        }
+    }
+}
+
 #[derive(Eq, PartialEq, Debug, Hash, Clone)]
 pub enum Register {
     General(GeneralRegister, RegisterSubset),

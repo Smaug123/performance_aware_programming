@@ -4,7 +4,7 @@ use nom::{
     character::complete::{
         alphanumeric1, char, digit1, line_ending, multispace0, not_line_ending, one_of,
     },
-    combinator::map_res,
+    combinator::{map_res, opt},
     multi::many0,
     sequence::{delimited, preceded, separated_pair, terminated, tuple},
     IResult,
@@ -20,12 +20,13 @@ use crate::{
     jump_instruction::Jump,
     move_instruction::{
         AccumulatorToMemory, ImmediateToMemory, ImmediateToRegister, MemRegMove,
-        MemoryToAccumulator, MoveInstruction, RegMemMove, RegRegMove,
+        MemoryToAccumulator, MemoryToSegment, MoveInstruction, RegMemMove, RegRegMove,
+        RegisterToSegment, SegmentToMemory, SegmentToRegister,
     },
     program::Program,
     register::{
-        Base, ByteRegisterSubset, GeneralRegister, Register, RegisterSubset, SourceDest,
-        SpecialRegister,
+        Base, ByteRegisterSubset, GeneralRegister, Register, RegisterSubset, SegmentRegister,
+        SourceDest, SpecialRegister,
     },
     trivia_instruction::TriviaInstruction,
 };
@@ -176,7 +177,7 @@ fn absolute_u8(input: &str) -> IResult<&str, u8> {
     ))(input)
 }
 
-fn absolute_u16(input: &str) -> IResult<&str, u16> {
+fn literal_absolute_u16(input: &str) -> IResult<&str, u16> {
     alt((
         map_res(preceded(tag("0x"), alphanumeric1), |s: &str| {
             s.chars()
@@ -197,6 +198,25 @@ fn absolute_u16(input: &str) -> IResult<&str, u16> {
         }),
         map_res(digit1, str::parse::<u16>),
         map_res(preceded(tag("word "), digit1), str::parse::<u16>),
+    ))(input)
+}
+
+fn absolute_u16(input: &str) -> IResult<&str, u16> {
+    alt((
+        literal_absolute_u16,
+        map_res(
+            tuple((
+                literal_absolute_u16,
+                preceded(ws(char('*')), literal_absolute_u16),
+            )),
+            |(x, y)| {
+                if (x as u32) * (y as u32) <= u16::MAX as u32 {
+                    Ok(x * y)
+                } else {
+                    Err(())
+                }
+            },
+        ),
     ))(input)
 }
 
@@ -264,7 +284,7 @@ fn effective_address(input: &str) -> IResult<&str, EffectiveAddress> {
             },
         ),
         // Lookup
-        map_res(source_dest, |source_dest| {
+        map_res(bracketed(source_dest), |source_dest| {
             Ok::<_, ()>(EffectiveAddress::SpecifiedIn(WithOffset::Basic(
                 source_dest,
             )))
@@ -312,7 +332,7 @@ fn effective_address(input: &str) -> IResult<&str, EffectiveAddress> {
             |(_, offset)| Ok::<_, ()>(EffectiveAddress::Bx(WithOffset::WithU16((), offset))),
         ),
         // Direct memory address
-        map_res(direct_offset, |offset| {
+        map_res(bracketed(direct_offset), |offset| {
             Ok::<_, ()>(EffectiveAddress::Direct(offset))
         }),
         // Offset from base pointer
@@ -337,16 +357,89 @@ fn effective_address(input: &str) -> IResult<&str, EffectiveAddress> {
     ))(input)
 }
 
+fn segment_register(input: &str) -> IResult<&str, SegmentRegister> {
+    map_res(
+        terminated(alt((char('s'), char('d'), char('e'), char('c'))), char('s')),
+        |c| match c {
+            's' => Ok::<_, ()>(SegmentRegister::Stack),
+            'd' => Ok(SegmentRegister::Data),
+            'e' => Ok(SegmentRegister::Extra),
+            'c' => Ok(SegmentRegister::Code),
+            _ => unreachable!(),
+        },
+    )(input)
+}
+
+fn reg_to_seg_move_instruction(input: &str) -> IResult<&str, RegisterToSegment> {
+    map_res(
+        preceded(
+            tag("mov "),
+            tuple((
+                terminated(segment_register, ws(char(','))),
+                terminated(register, line_ending),
+            )),
+        ),
+        |(dest, source)| Ok::<_, ()>(RegisterToSegment { dest, source }),
+    )(input)
+}
+
+fn mem_to_seg_move_instruction(input: &str) -> IResult<&str, MemoryToSegment> {
+    map_res(
+        preceded(
+            tag("mov "),
+            tuple((
+                terminated(segment_register, ws(char(','))),
+                terminated(effective_address, line_ending),
+            )),
+        ),
+        |(dest, source)| Ok::<_, ()>(MemoryToSegment { dest, source }),
+    )(input)
+}
+
+fn seg_to_mem_move_instruction(input: &str) -> IResult<&str, SegmentToMemory> {
+    map_res(
+        preceded(
+            tag("mov "),
+            tuple((
+                terminated(effective_address, ws(char(','))),
+                terminated(segment_register, line_ending),
+            )),
+        ),
+        |(dest, source)| Ok::<_, ()>(SegmentToMemory { dest, source }),
+    )(input)
+}
+
+fn seg_to_reg_move_instruction(input: &str) -> IResult<&str, SegmentToRegister> {
+    map_res(
+        preceded(
+            tag("mov "),
+            tuple((
+                terminated(register, ws(char(','))),
+                terminated(segment_register, line_ending),
+            )),
+        ),
+        |(dest, source)| Ok::<_, ()>(SegmentToRegister { dest, source }),
+    )(input)
+}
+
 fn reg_mem_move_instruction(input: &str) -> IResult<&str, RegMemMove> {
     map_res(
         preceded(
             tag("mov "),
             tuple((
-                terminated(effective_address, argument_sep),
+                terminated(
+                    tuple((opt(ws(alt((tag("word"), tag("byte"))))), effective_address)),
+                    argument_sep,
+                ),
                 terminated(register, line_ending),
             )),
         ),
-        |(address, register)| {
+        |((tag, address), register)| {
+            if let Some(tag) = tag {
+                if tag == "word" && !register.is_wide() {
+                    return Err(());
+                }
+            }
             Ok::<_, ()>(RegMemMove {
                 dest: address,
                 source: register,
@@ -730,6 +823,18 @@ fn move_instruction(input: &str) -> IResult<&str, MoveInstruction> {
         map_res(immediate_to_memory_instruction, |v| {
             Ok::<_, ()>(MoveInstruction::ImmediateToMemory(v))
         }),
+        map_res(seg_to_mem_move_instruction, |v| {
+            Ok::<_, ()>(MoveInstruction::SegmentToMemory(v))
+        }),
+        map_res(seg_to_reg_move_instruction, |v| {
+            Ok::<_, ()>(MoveInstruction::SegmentToRegister(v))
+        }),
+        map_res(reg_to_seg_move_instruction, |v| {
+            Ok::<_, ()>(MoveInstruction::RegisterToSegment(v))
+        }),
+        map_res(mem_to_seg_move_instruction, |v| {
+            Ok::<_, ()>(MoveInstruction::MemoryToSegment(v))
+        }),
     ))(input)
 }
 
@@ -747,7 +852,7 @@ fn instruction(input: &str) -> IResult<&str, Instruction<&str>> {
 }
 
 fn trivia(input: &str) -> IResult<&str, &str> {
-    alt((comment, line_ending))(input)
+    alt((comment, line_ending, tag("\t")))(input)
 }
 
 pub fn program(input: &str) -> IResult<&str, Program<Vec<Instruction<&str>>, &str>> {
