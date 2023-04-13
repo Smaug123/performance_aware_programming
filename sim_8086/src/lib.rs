@@ -8,3 +8,4 @@ pub mod move_instruction;
 pub mod program;
 pub mod register;
 pub mod trivia_instruction;
+mod arithmetic_expression;

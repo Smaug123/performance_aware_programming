@@ -2,16 +2,17 @@ use nom::{
     branch::alt,
     bytes::complete::{is_not, tag},
     character::complete::{
-        alphanumeric1, char, digit1, line_ending, multispace0, not_line_ending, one_of,
+        alphanumeric1, char, digit1, line_ending, multispace0, not_line_ending, one_of, space0,
     },
     combinator::{map_res, opt},
     error::FromExternalError,
-    multi::many0,
+    multi::{many0, many1},
     sequence::{delimited, preceded, separated_pair, terminated, tuple},
     IResult,
 };
 
 use crate::{
+    arithmetic_expression::{ArithmeticExpression, Token},
     arithmetic_instruction::{
         ArithmeticInstruction, ArithmeticInstructionSelect, ArithmeticOperation, MemRegArithmetic,
         RegMemArithmetic, RegRegArithmetic,
@@ -43,6 +44,10 @@ where
     F: FnMut(&'a str) -> IResult<&'a str, O, E>,
 {
     delimited(multispace0, inner, multispace0)
+}
+
+fn line_end(input: &str) -> IResult<&str, &str> {
+    alt((comment, line_ending))(input)
 }
 
 #[derive(Eq, PartialEq)]
@@ -84,7 +89,7 @@ fn argument_sep(input: &str) -> IResult<&str, ()> {
 }
 
 fn bits(input: &str) -> IResult<&str, u8> {
-    let p = preceded(tag("bits "), terminated(digit1, line_ending));
+    let p = preceded(tag("bits "), digit1);
     map_res(p, str::parse)(input)
 }
 
@@ -155,9 +160,9 @@ fn reg_reg_move_instruction(input: &str) -> IResult<&str, RegRegMove> {
     map_res(
         preceded(
             tag("mov "),
-            tuple((register, argument_sep, register, line_ending)),
+            tuple((terminated(register, argument_sep), register)),
         ),
-        |(dest, _, source, _)| Ok::<_, ()>(RegRegMove { dest, source }),
+        |(dest, source)| Ok::<_, ()>(RegRegMove { dest, source }),
     )(input)
 }
 
@@ -180,15 +185,15 @@ fn source_dest(input: &str) -> IResult<&str, SourceDest> {
     ))(input)
 }
 
-fn absolute_u8(input: &str) -> IResult<&str, u8> {
+fn literal_absolute_u8(input: &str) -> IResult<&str, u8> {
     alt((
         map_res(preceded(tag("0x"), alphanumeric1), |s: &str| {
             s.chars()
                 .map(|x| {
                     if x.is_ascii_digit() {
-                        Ok(x as u8 - b'0')
+                        Ok(x as u8 - '0' as u8)
                     } else if x.is_ascii_hexdigit() {
-                        Ok(x.to_ascii_lowercase() as u8 - b'a')
+                        Ok(x.to_ascii_lowercase() as u8 - 'a' as u8)
                     } else {
                         Err(())
                     }
@@ -228,23 +233,34 @@ fn literal_absolute_u16(input: &str) -> IResult<&str, u16> {
     ))(input)
 }
 
+fn arithmetic_expression_u8(input: &str) -> IResult<&str, ArithmeticExpression<u8>> {
+    map_res(
+        many1(alt((
+            map_res(literal_absolute_u8, |x| Ok::<_, ()>(Token::Literal(x))),
+            map_res(ws(char('+')), |_| Ok::<_, ()>(Token::Add)),
+            map_res(ws(char('*')), |_| Ok::<_, ()>(Token::Times)),
+        ))),
+        |stream| Ok::<_, ()>(ArithmeticExpression::of_tokens(stream)),
+    )(input)
+}
+
+fn arithmetic_expression_u16(input: &str) -> IResult<&str, ArithmeticExpression<u16>> {
+    map_res(
+        many1(alt((
+            map_res(literal_absolute_u16, |x| Ok::<_, ()>(Token::Literal(x))),
+            map_res(ws(char('+')), |_| Ok::<_, ()>(Token::Add)),
+            map_res(ws(char('*')), |_| Ok::<_, ()>(Token::Times)),
+        ))),
+        |stream| Ok::<_, ()>(ArithmeticExpression::of_tokens(stream)),
+    )(input)
+}
+
+fn absolute_u8(input: &str) -> IResult<&str, u8> {
+    map_res(arithmetic_expression_u8, |expr| expr.eval())(input)
+}
+
 fn absolute_u16(input: &str) -> IResult<&str, u16> {
-    alt((
-        literal_absolute_u16,
-        map_res(
-            tuple((
-                literal_absolute_u16,
-                preceded(ws(char('*')), literal_absolute_u16),
-            )),
-            |(x, y)| {
-                if (x as u32) * (y as u32) <= u16::MAX as u32 {
-                    Ok(x * y)
-                } else {
-                    Err(())
-                }
-            },
-        ),
-    ))(input)
+    map_res(arithmetic_expression_u16, |expr| expr.eval())(input)
 }
 
 fn negative_u8(input: &str) -> IResult<&str, u8> {
@@ -261,12 +277,12 @@ fn negative_u16(input: &str) -> IResult<&str, u16> {
     )(input)
 }
 
-fn literal_u8(input: &str) -> IResult<&str, u8> {
-    alt((absolute_u8, negative_u8))(input)
-}
-
 fn literal_u16(input: &str) -> IResult<&str, u16> {
     alt((absolute_u16, negative_u16))(input)
+}
+
+fn literal_u8(input: &str) -> IResult<&str, u8> {
+    alt((absolute_u8, negative_u8))(input)
 }
 
 fn effective_address(input: &str) -> IResult<&str, (OffsetTag, EffectiveAddress)> {
@@ -406,10 +422,7 @@ fn reg_to_seg_move_instruction(input: &str) -> IResult<&str, RegisterToSegment> 
     map_res(
         preceded(
             tag("mov "),
-            tuple((
-                terminated(segment_register, ws(char(','))),
-                terminated(register, line_ending),
-            )),
+            tuple((terminated(segment_register, ws(char(','))), register)),
         ),
         |(dest, source)| Ok::<_, ()>(RegisterToSegment { dest, source }),
     )(input)
@@ -421,7 +434,7 @@ fn mem_to_seg_move_instruction(input: &str) -> IResult<&str, MemoryToSegment> {
             tag("mov "),
             tuple((
                 terminated(segment_register, ws(char(','))),
-                terminated(effective_address, line_ending),
+                effective_address,
             )),
         ),
         |(dest, (tag, source))| match tag {
@@ -437,7 +450,7 @@ fn seg_to_mem_move_instruction(input: &str) -> IResult<&str, SegmentToMemory> {
             tag("mov "),
             tuple((
                 terminated(effective_address, ws(char(','))),
-                terminated(segment_register, line_ending),
+                segment_register,
             )),
         ),
         |((tag, dest), source)| match tag {
@@ -451,10 +464,7 @@ fn seg_to_reg_move_instruction(input: &str) -> IResult<&str, SegmentToRegister> 
     map_res(
         preceded(
             tag("mov "),
-            tuple((
-                terminated(register, ws(char(','))),
-                terminated(segment_register, line_ending),
-            )),
+            tuple((terminated(register, ws(char(','))), segment_register)),
         ),
         |(dest, source)| Ok::<_, ()>(SegmentToRegister { dest, source }),
     )(input)
@@ -464,10 +474,7 @@ fn reg_mem_move_instruction(input: &str) -> IResult<&str, RegMemMove> {
     map_res(
         preceded(
             tag("mov "),
-            tuple((
-                terminated(effective_address, argument_sep),
-                terminated(register, line_ending),
-            )),
+            tuple((terminated(effective_address, argument_sep), register)),
         ),
         |((tag, address), register)| match (tag, register.is_wide()) {
             (OffsetTag::Word, false) => Err(()),
@@ -483,10 +490,7 @@ fn mem_reg_move_instruction(input: &str) -> IResult<&str, MemRegMove> {
     map_res(
         preceded(
             tag("mov "),
-            tuple((
-                terminated(register, argument_sep),
-                terminated(effective_address, line_ending),
-            )),
+            tuple((terminated(register, argument_sep), effective_address)),
         ),
         |(register, (tag, address))| match (tag, register.is_wide()) {
             (OffsetTag::Word, false) => Err(()),
@@ -517,18 +521,12 @@ fn immediate_to_register_instruction(input: &str) -> IResult<&str, ImmediateToRe
         preceded(
             tag("mov "),
             alt((
-                terminated(
-                    map_res(immediate_wide, |(register, x)| {
-                        Ok::<_, ()>((register, Err(x)))
-                    }),
-                    line_ending,
-                ),
-                terminated(
-                    map_res(immediate_byte, |(register, x)| {
-                        Ok::<_, ()>((register, Ok(x)))
-                    }),
-                    line_ending,
-                ),
+                map_res(immediate_wide, |(register, x)| {
+                    Ok::<_, ()>((register, Err(x)))
+                }),
+                map_res(immediate_byte, |(register, x)| {
+                    Ok::<_, ()>((register, Ok(x)))
+                }),
             )),
         ),
         |(register, contents)| {
@@ -729,16 +727,13 @@ fn arithmetic_select(input: &str) -> IResult<&str, ArithmeticInstructionSelect> 
 
 fn arithmetic_instruction(input: &str) -> IResult<&str, ArithmeticInstruction> {
     map_res(
-        tuple((
-            terminated(arithmetic_op, char(' ')),
-            terminated(arithmetic_select, line_ending),
-        )),
+        tuple((terminated(arithmetic_op, char(' ')), arithmetic_select)),
         |(op, instruction)| Ok::<_, ()>(ArithmeticInstruction { op, instruction }),
     )(input)
 }
 
 fn label(input: &str) -> IResult<&str, &str> {
-    terminated(is_not(":\r\n \t"), terminated(char(':'), line_ending))(input)
+    terminated(is_not(":\r\n \t"), char(':'))(input)
 }
 
 fn label_terminator(input: &str) -> IResult<&str, &str> {
@@ -867,20 +862,19 @@ fn instruction(input: &str) -> IResult<&str, Instruction<&str>> {
     ))(input)
 }
 
-fn trivia(input: &str) -> IResult<&str, &str> {
-    alt((comment, line_ending, tag("\t")))(input)
-}
-
 pub fn program(input: &str) -> IResult<&str, Program<Vec<Instruction<&str>>, &str>> {
     map_res(
         preceded(
-            many0(trivia),
+            many0(line_end),
             separated_pair(
                 bits,
-                many0(trivia),
+                many0(line_end),
                 many0(alt((
-                    map_res(instruction, |i| Ok::<_, ()>(Some(i))),
-                    map_res(trivia, |_| Ok::<_, ()>(None)),
+                    map_res(
+                        terminated(preceded(space0, instruction), preceded(space0, line_end)),
+                        |i| Ok::<_, ()>(Some(i)),
+                    ),
+                    map_res(preceded(space0, line_end), |_| Ok::<_, ()>(None)),
                 ))),
             ),
         ),
@@ -892,4 +886,65 @@ pub fn program(input: &str) -> IResult<&str, Program<Vec<Instruction<&str>>, &st
             })
         },
     )(input)
+}
+
+#[cfg(test)]
+mod test_assembly {
+    use crate::{
+        arithmetic_instruction::{
+            ArithmeticInstruction, ArithmeticInstructionSelect, ArithmeticOperation,
+        },
+        assembly::instruction,
+        effective_address::{EffectiveAddress, WithOffset},
+        instruction::Instruction,
+        move_instruction::{ImmediateToMemory, MoveInstruction},
+        register::{GeneralRegister, Register, RegisterSubset},
+    };
+
+    #[test]
+    fn arithmetic_expression_parse() {
+        let (remaining, parsed) = instruction("add bx, 4*64").unwrap();
+        assert_eq!(remaining, "");
+        assert_eq!(
+            parsed,
+            Instruction::Arithmetic(ArithmeticInstruction {
+                op: ArithmeticOperation::Add,
+                instruction: ArithmeticInstructionSelect::ImmediateToRegisterWord(
+                    Register::General(GeneralRegister::B, RegisterSubset::All),
+                    4 * 64,
+                    false
+                )
+            })
+        )
+    }
+
+    #[test]
+    fn arithmetic_expression_parse_2() {
+        let (remaining, parsed) = instruction("add cx, 166").unwrap();
+        assert_eq!(remaining, "");
+        assert_eq!(
+            parsed,
+            Instruction::Arithmetic(ArithmeticInstruction {
+                op: ArithmeticOperation::Add,
+                instruction: ArithmeticInstructionSelect::ImmediateToRegisterByte(
+                    Register::General(GeneralRegister::C, RegisterSubset::All),
+                    166,
+                    true
+                )
+            })
+        )
+    }
+
+    #[test]
+    fn mov_parse() {
+        let (remaining, parsed) = instruction("mov byte [bx + 61*4 + 1], 255").unwrap();
+        assert_eq!(remaining, "");
+        assert_eq!(
+            parsed,
+            Instruction::Move(MoveInstruction::ImmediateToMemory(ImmediateToMemory::Byte(
+                EffectiveAddress::Bx(WithOffset::WithU8((), 61 * 4 + 1)),
+                255
+            )))
+        )
+    }
 }

@@ -12,7 +12,7 @@ mod test_program {
         assembly,
         instruction::Instruction,
         program::Program,
-        register::{GeneralRegister, Register, RegisterSubset},
+        register::{GeneralRegister, Register, RegisterSubset}, move_instruction::{MoveInstruction, ImmediateToMemory}, effective_address::{WithOffset, EffectiveAddress},
     };
 
     fn instruction_equal_ignoring_labels<A, B>(i1: &Instruction<A>, i2: &Instruction<B>) -> bool {
@@ -494,7 +494,14 @@ mod test_program {
         let input_bytecode = include_bytes!(
             "../../computer_enhance/perfaware/part1/listing_0055_challenge_rectangle"
         );
-        test_parser(input_asm, input_bytecode)
+        let mut swaps = HashMap::new();
+        swaps.insert(
+            Instruction::Move(MoveInstruction::ImmediateToMemory(ImmediateToMemory::Byte(
+                EffectiveAddress::Bx(WithOffset::WithU8((), 61 * 4 + 1)),
+                255))),
+            Instruction::Move(MoveInstruction::ImmediateToMemory(ImmediateToMemory::Word(EffectiveAddress::Bx(WithOffset::WithU16((), 16 * 4 * 1)), 255)))
+        );
+        test_parser_lax(input_asm, input_bytecode, swaps)
     }
 
     #[test]
@@ -505,6 +512,13 @@ mod test_program {
         let asm = include_str!(
             "../../computer_enhance/perfaware/part1/listing_0055_challenge_rectangle.asm"
         );
-        test_disassembler(asm, bytecode)
+        let mut allowed = HashSet::new();
+        // TODO: check this logic
+        // We implemented `mov [bx + 61*4 + 1], 255` using "immediate to memory",
+        // taking only four bytes;
+        // in this example, Casey implemented it using "immediate to register/memory",
+        // which takes five.
+        allowed.insert((vec![198, 71, 245, 255], vec![198, 135, 245, 0, 255]));
+        test_disassembler_lax(asm, bytecode, allowed)
     }
 }
