@@ -124,7 +124,11 @@ impl Computer {
     }
 
     fn set_register(&mut self, r: &Register, value: u16) -> String {
-        let was = self.get_register(r);
+        let register_for_print = match r {
+            Register::General(x, _) => Register::General(x.clone(), RegisterSubset::All),
+            _ => r.clone(),
+        };
+        let was = self.get_register(&register_for_print);
         match r {
             Register::General(GeneralRegister::A, RegisterSubset::All) => self.registers.a = value,
             Register::General(GeneralRegister::B, RegisterSubset::All) => self.registers.b = value,
@@ -191,10 +195,11 @@ impl Computer {
             Register::Special(SpecialRegister::SourceIndex) => self.registers.si = value,
             Register::Special(SpecialRegister::DestIndex) => self.registers.di = value,
         }
-        let is_now = self.get_register(r);
+        let is_now = self.get_register(&register_for_print);
+        // TODO: this needs to print out "al: 0x22 -> blah" instead of "ax: 0x2222 -> blah" if short
         format!(
             "{}:{}->{}",
-            r,
+            register_for_print,
             Self::display_small(was),
             Self::display_small(is_now)
         )
@@ -480,6 +485,23 @@ impl Computer {
                 Self::display_big(value),
                 value
             ))
+        }
+
+        for r in [
+            SegmentRegister::Extra,
+            SegmentRegister::Code,
+            SegmentRegister::Stack,
+            SegmentRegister::Data,
+        ] {
+            let value = self.get_segment(r);
+            if value != 0 {
+                result.push_str(&format!(
+                    "{}: {} ({})\n",
+                    r,
+                    Self::display_big(value),
+                    value
+                ));
+            }
         }
 
         result

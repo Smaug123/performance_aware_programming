@@ -21,19 +21,24 @@ mod test_computer {
 
         let decoded = Program::of_bytes(input_bytecode.as_ref().iter().cloned());
 
-        let mut trace = "".to_owned();
+        let mut trace: Vec<String> = vec![];
 
         for instruction in decoded.instructions {
-            trace.push_str(&computer.step(&instruction));
-            trace.push('\n');
+            trace.push(computer.step(&instruction));
         }
 
-        trace.push_str("\nFinal registers:\n");
-        trace.push_str(&computer.dump_register_state());
+        trace.push("".to_owned());
+        trace.push("Final registers:".to_owned());
+        for line in computer.dump_register_state().lines() {
+            trace.push(line.to_string());
+        }
 
-        trace.push_str("\n");
+        trace.push("".to_owned());
 
-        assert_eq!(trace, clean_trace(expected_trace))
+        assert_eq!(
+            trace,
+            clean_trace(expected_trace).lines().collect::<Vec<_>>()
+        )
     }
 
     #[test]
