@@ -93,7 +93,7 @@ mod test_computer {
         test_sim(input_bytecode, expected_trace)
     }
 
-/*
+    /*
     #[test]
     fn test_ip_register() {
         let input_bytecode =
