@@ -1,4 +1,4 @@
-use std::ops::{Mul, Add, Sub};
+use std::ops::{Add, Mul, Sub};
 
 #[derive(PartialEq, Eq)]
 enum Op {
@@ -36,8 +36,15 @@ impl HasMax for u8 {
     const MAX: u8 = u8::MAX;
 }
 
-impl<T> ArithmeticExpression<T> where T: Copy {
-    fn eval_index(&self, index: usize) -> Result<T, ()> where T: Add<Output = T> + Sub<Output = T> + Mul<Output = T> + HasMax + PartialOrd, u64: From<T> {
+impl<T> ArithmeticExpression<T>
+where
+    T: Copy,
+{
+    fn eval_index(&self, index: usize) -> Result<T, ()>
+    where
+        T: Add<Output = T> + Sub<Output = T> + Mul<Output = T> + HasMax + PartialOrd,
+        u64: From<T>,
+    {
         match &self.arena[index] {
             BinaryExpr::Const(x) => Ok(*x),
             BinaryExpr::Binary(op, left, right) => {
@@ -65,7 +72,11 @@ impl<T> ArithmeticExpression<T> where T: Copy {
         }
     }
 
-    pub(crate) fn eval(&self) -> Result<T, ()> where T: Add<Output = T> + Mul<Output = T> + HasMax + PartialOrd + Sub<Output = T>, u64: From<T> {
+    pub(crate) fn eval(&self) -> Result<T, ()>
+    where
+        T: Add<Output = T> + Mul<Output = T> + HasMax + PartialOrd + Sub<Output = T>,
+        u64: From<T>,
+    {
         self.eval_index(self.arena.len() - 1)
     }
 

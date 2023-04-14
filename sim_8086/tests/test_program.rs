@@ -10,9 +10,11 @@ mod test_program {
             ArithmeticInstruction, ArithmeticInstructionSelect, ArithmeticOperation,
         },
         assembly,
+        effective_address::{EffectiveAddress, WithOffset},
         instruction::Instruction,
+        move_instruction::{ImmediateToMemory, MoveInstruction},
         program::Program,
-        register::{GeneralRegister, Register, RegisterSubset}, move_instruction::{MoveInstruction, ImmediateToMemory}, effective_address::{WithOffset, EffectiveAddress},
+        register::{GeneralRegister, Register, RegisterSubset},
     };
 
     fn instruction_equal_ignoring_labels<A, B>(i1: &Instruction<A>, i2: &Instruction<B>) -> bool {
@@ -498,8 +500,12 @@ mod test_program {
         swaps.insert(
             Instruction::Move(MoveInstruction::ImmediateToMemory(ImmediateToMemory::Byte(
                 EffectiveAddress::Bx(WithOffset::WithU8((), 61 * 4 + 1)),
-                255))),
-            Instruction::Move(MoveInstruction::ImmediateToMemory(ImmediateToMemory::Word(EffectiveAddress::Bx(WithOffset::WithU16((), 16 * 4 * 1)), 255)))
+                255,
+            ))),
+            Instruction::Move(MoveInstruction::ImmediateToMemory(ImmediateToMemory::Byte(
+                EffectiveAddress::Bx(WithOffset::WithU16((), 61 * 4 + 1)),
+                255,
+            ))),
         );
         test_parser_lax(input_asm, input_bytecode, swaps)
     }
@@ -513,11 +519,13 @@ mod test_program {
             "../../computer_enhance/perfaware/part1/listing_0055_challenge_rectangle.asm"
         );
         let mut allowed = HashSet::new();
-        // TODO: check this logic
-        // We implemented `mov [bx + 61*4 + 1], 255` using "immediate to memory",
+        // We implemented `mov [bx + 61*4 + 1], 255` using "immediate to memory, 8 bit displacement",
         // taking only four bytes;
-        // in this example, Casey implemented it using "immediate to register/memory",
+        // in this example, Casey implemented it using "immediate to memory, 16 bit displacement",
         // which takes five.
+        // The manual is explicit that this situation is allowed:
+        // If the displacement is only a single byte, the 8086 or 8088 automatically sign-extends
+        // this quantity to 16-bits before using the information in further address calculations.
         allowed.insert((vec![198, 71, 245, 255], vec![198, 135, 245, 0, 255]));
         test_disassembler_lax(asm, bytecode, allowed)
     }

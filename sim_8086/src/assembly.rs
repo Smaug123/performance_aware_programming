@@ -191,9 +191,9 @@ fn literal_absolute_u8(input: &str) -> IResult<&str, u8> {
             s.chars()
                 .map(|x| {
                     if x.is_ascii_digit() {
-                        Ok(x as u8 - '0' as u8)
+                        Ok(x as u8 - b'0')
                     } else if x.is_ascii_hexdigit() {
-                        Ok(x.to_ascii_lowercase() as u8 - 'a' as u8)
+                        Ok(x.to_ascii_lowercase() as u8 - b'a')
                     } else {
                         Err(())
                     }

@@ -1,3 +1,4 @@
+mod arithmetic_expression;
 pub mod arithmetic_instruction;
 pub mod assembly;
 pub mod computer;
@@ -8,4 +9,3 @@ pub mod move_instruction;
 pub mod program;
 pub mod register;
 pub mod trivia_instruction;
-mod arithmetic_expression;
