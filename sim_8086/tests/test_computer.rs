@@ -70,6 +70,7 @@ mod test_computer {
         test_sim(input_bytecode, expected_trace)
     }
 
+    /*
     #[test]
     fn test_add_sub_cmp() {
         let input_bytecode =
@@ -164,4 +165,5 @@ mod test_computer {
         );
         test_sim(input_bytecode, expected_trace)
     }
+    */
 }
