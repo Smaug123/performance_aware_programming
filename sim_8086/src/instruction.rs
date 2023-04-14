@@ -8,10 +8,11 @@ use crate::{
     effective_address::EffectiveAddress,
     jump_instruction::Jump,
     move_instruction::{
-        AccumulatorToMemory, ImmediateToRegister, ImmediateToRegisterOrMemory, MemRegMove,
-        MemoryToAccumulator, MoveInstruction, RegMemMove, RegRegMove,
+        AccumulatorToMemory, ImmediateToMemory, ImmediateToRegister, MemRegMove,
+        MemoryToAccumulator, MemoryToSegment, MoveInstruction, RegMemMove, RegRegMove,
+        RegisterToSegment, SegmentToMemory, SegmentToRegister,
     },
-    register::Register,
+    register::{Register, SegmentRegister},
     trivia_instruction::TriviaInstruction,
 };
 
@@ -263,17 +264,55 @@ impl Instruction<i8> {
                 let data_low = bytes.next().unwrap();
                 if w == 1 {
                     let data_high = bytes.next().unwrap() as u16 * 256;
-                    Some(Instruction::Move(
-                        MoveInstruction::ImmediateToRegisterOrMemory(
-                            ImmediateToRegisterOrMemory::Word(dest, data_high + data_low as u16),
-                        ),
-                    ))
+                    Some(Instruction::Move(MoveInstruction::ImmediateToMemory(
+                        ImmediateToMemory::Word(dest, data_high + data_low as u16),
+                    )))
                 } else {
-                    Some(Instruction::Move(
-                        MoveInstruction::ImmediateToRegisterOrMemory(
-                            ImmediateToRegisterOrMemory::Byte(dest, data_low),
-                        ),
-                    ))
+                    Some(Instruction::Move(MoveInstruction::ImmediateToMemory(
+                        ImmediateToMemory::Byte(dest, data_low),
+                    )))
+                }
+            } else if b == 0b10001110 {
+                // Register/memory to segment
+                let mod_sr_rm = bytes.next().unwrap();
+                let mode = mod_sr_rm / 64;
+                let sr = SegmentRegister::of_byte((mod_sr_rm & 0b00011000) / 8);
+                let rm = mod_sr_rm % 8;
+
+                if mode == 3 {
+                    let rm = Register::of_id(rm, true);
+                    Some(Instruction::Move(MoveInstruction::RegisterToSegment(
+                        RegisterToSegment {
+                            dest: sr,
+                            source: rm,
+                        },
+                    )))
+                } else {
+                    let source = EffectiveAddress::of_mode_rm(mode, rm, bytes);
+                    Some(Instruction::Move(MoveInstruction::MemoryToSegment(
+                        MemoryToSegment { source, dest: sr },
+                    )))
+                }
+            } else if b == 0b10001100 {
+                // Segment to register/memory
+                let mod_sr_rm = bytes.next().unwrap();
+                let mode = mod_sr_rm / 64;
+                let sr = SegmentRegister::of_byte((mod_sr_rm & 0b00011000) / 8);
+                let rm = mod_sr_rm % 8;
+
+                if mode == 3 {
+                    let rm = Register::of_id(rm, true);
+                    Some(Instruction::Move(MoveInstruction::SegmentToRegister(
+                        SegmentToRegister {
+                            source: sr,
+                            dest: rm,
+                        },
+                    )))
+                } else {
+                    let dest = EffectiveAddress::of_mode_rm(mode, rm, bytes);
+                    Some(Instruction::Move(MoveInstruction::SegmentToMemory(
+                        SegmentToMemory { dest, source: sr },
+                    )))
                 }
             } else if (b & 0b11000100) == 0b00000000u8 {
                 // Arithmetic instruction, reg/memory with register to either

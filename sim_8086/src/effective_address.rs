@@ -24,11 +24,17 @@ where
 
 #[derive(Eq, PartialEq, Debug, Hash, Clone)]
 pub enum EffectiveAddress {
+    /// An offset from the contents of the (BX/BP) register plus the contents of the (SI/DI) register.
     Sum(WithOffset<(Base, SourceDest)>),
+    /// An offset from the contents of the SI or DI register.
     SpecifiedIn(WithOffset<SourceDest>),
+    /// An offset from the contents of the BX register.
     Bx(WithOffset<()>),
+    /// A literal index into memory.
     Direct(u16),
+    /// An offset from the contents of the BP register.
     BasePointer(u8),
+    /// An offset from the contents of the BP register.
     BasePointerWide(u16),
 }
 

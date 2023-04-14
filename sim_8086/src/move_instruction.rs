@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use crate::{
     effective_address::EffectiveAddress,
-    register::{ByteRegisterSubset, Register, RegisterSubset},
+    register::{ByteRegisterSubset, Register, RegisterSubset, SegmentRegister},
 };
 
 #[derive(Eq, PartialEq, Debug, Hash, Clone)]
@@ -184,23 +184,23 @@ impl Display for ImmediateToRegister {
 }
 
 #[derive(Eq, PartialEq, Debug, Hash, Clone)]
-pub enum ImmediateToRegisterOrMemory {
+pub enum ImmediateToMemory {
     Byte(EffectiveAddress, u8),
     Word(EffectiveAddress, u16),
 }
 
-impl ImmediateToRegisterOrMemory {
+impl ImmediateToMemory {
     fn to_bytes(&self) -> Vec<u8> {
         let mut result = Vec::<u8>::with_capacity(3);
         let opcode = 0b11000110u8;
 
         match self {
-            ImmediateToRegisterOrMemory::Byte(address, data) => {
+            ImmediateToMemory::Byte(address, data) => {
                 result.push(opcode);
                 address.push(0, &mut result);
                 result.push(*data);
             }
-            ImmediateToRegisterOrMemory::Word(address, data) => {
+            ImmediateToMemory::Word(address, data) => {
                 result.push(opcode + 1);
                 address.push(0, &mut result);
                 result.push((data % 256) as u8);
@@ -247,6 +247,76 @@ impl AccumulatorToMemory {
 }
 
 #[derive(Eq, PartialEq, Debug, Hash, Clone)]
+pub struct SegmentToMemory {
+    pub source: SegmentRegister,
+    pub dest: EffectiveAddress,
+}
+
+impl SegmentToMemory {
+    fn to_bytes(&self) -> Vec<u8> {
+        let mut result = Vec::with_capacity(4);
+        result.push(0b10001100);
+
+        EffectiveAddress::push(&self.dest, self.source as u8, &mut result);
+
+        result
+    }
+}
+
+#[derive(Eq, PartialEq, Debug, Hash, Clone)]
+pub struct MemoryToSegment {
+    pub dest: SegmentRegister,
+    pub source: EffectiveAddress,
+}
+
+impl MemoryToSegment {
+    fn to_bytes(&self) -> Vec<u8> {
+        let mut result = Vec::with_capacity(4);
+        result.push(0b10001110);
+
+        EffectiveAddress::push(&self.source, self.dest as u8, &mut result);
+
+        result
+    }
+}
+
+#[derive(Eq, PartialEq, Debug, Hash, Clone)]
+pub struct SegmentToRegister {
+    pub source: SegmentRegister,
+    pub dest: Register,
+}
+
+impl SegmentToRegister {
+    fn to_bytes(&self) -> Vec<u8> {
+        let mode = 0b11u8;
+        let sr = self.source as u8;
+        let (rm, is_wide) = self.dest.to_id();
+        if !is_wide {
+            panic!("Tried to move a segment register to a byte register");
+        }
+        vec![0b10001100, mode * 64 + sr * 8 + rm]
+    }
+}
+
+#[derive(Eq, PartialEq, Debug, Hash, Clone)]
+pub struct RegisterToSegment {
+    pub dest: SegmentRegister,
+    pub source: Register,
+}
+
+impl RegisterToSegment {
+    fn to_bytes(&self) -> Vec<u8> {
+        let mode = 0b11u8;
+        let sr = self.dest as u8;
+        let (rm, is_wide) = self.source.to_id();
+        if !is_wide {
+            panic!("Tried to move a byte register to a segment register");
+        }
+        vec![0b10001110, mode * 64 + sr * 8 + rm]
+    }
+}
+
+#[derive(Eq, PartialEq, Debug, Hash, Clone)]
 pub enum MoveInstruction {
     /// Move a value from one register to another
     RegRegMove(RegRegMove),
@@ -257,11 +327,15 @@ pub enum MoveInstruction {
     /// Load a literal value into a register
     ImmediateToRegister(ImmediateToRegister),
     /// Load a literal value into a register or into memory
-    ImmediateToRegisterOrMemory(ImmediateToRegisterOrMemory),
+    ImmediateToMemory(ImmediateToMemory),
     /// Load a value from memory into the accumulator
     MemoryToAccumulator(MemoryToAccumulator),
     /// Store a value into memory from the accumulator
     AccumulatorToMemory(AccumulatorToMemory),
+    SegmentToMemory(SegmentToMemory),
+    MemoryToSegment(MemoryToSegment),
+    SegmentToRegister(SegmentToRegister),
+    RegisterToSegment(RegisterToSegment),
 }
 
 impl Display for MoveInstruction {
@@ -279,14 +353,12 @@ impl Display for MoveInstruction {
             MoveInstruction::ImmediateToRegister(instruction) => {
                 f.write_fmt(format_args!("mov {}", instruction))
             }
-            MoveInstruction::ImmediateToRegisterOrMemory(ImmediateToRegisterOrMemory::Byte(
-                address,
-                value,
-            )) => f.write_fmt(format_args!("mov {}, {}", address, value)),
-            MoveInstruction::ImmediateToRegisterOrMemory(ImmediateToRegisterOrMemory::Word(
-                address,
-                value,
-            )) => f.write_fmt(format_args!("mov {}, {}", address, value)),
+            MoveInstruction::ImmediateToMemory(ImmediateToMemory::Byte(address, value)) => {
+                f.write_fmt(format_args!("mov {}, {}", address, value))
+            }
+            MoveInstruction::ImmediateToMemory(ImmediateToMemory::Word(address, value)) => {
+                f.write_fmt(format_args!("mov {}, {}", address, value))
+            }
             MoveInstruction::MemoryToAccumulator(instruction) => f.write_fmt(format_args!(
                 "mov a{}, [{}]",
                 if instruction.is_wide { 'x' } else { 'l' },
@@ -297,6 +369,18 @@ impl Display for MoveInstruction {
                 instruction.address,
                 if instruction.is_wide { 'x' } else { 'l' }
             )),
+            MoveInstruction::SegmentToMemory(mov) => {
+                f.write_fmt(format_args!("mov {}, {}", mov.dest, mov.source))
+            }
+            MoveInstruction::SegmentToRegister(mov) => {
+                f.write_fmt(format_args!("mov {}, {}", mov.dest, mov.source))
+            }
+            MoveInstruction::RegisterToSegment(mov) => {
+                f.write_fmt(format_args!("mov {}, {}", mov.dest, mov.source))
+            }
+            MoveInstruction::MemoryToSegment(mov) => {
+                f.write_fmt(format_args!("mov {}, {}", mov.dest, mov.source))
+            }
         }
     }
 }
@@ -307,10 +391,14 @@ impl MoveInstruction {
             MoveInstruction::RegMemMove(mov) => mov.to_bytes(),
             MoveInstruction::MemRegMove(mov) => mov.to_bytes(),
             MoveInstruction::ImmediateToRegister(mov) => mov.to_bytes(),
-            MoveInstruction::ImmediateToRegisterOrMemory(mov) => mov.to_bytes(),
+            MoveInstruction::ImmediateToMemory(mov) => mov.to_bytes(),
             MoveInstruction::MemoryToAccumulator(mov) => mov.to_bytes(),
             MoveInstruction::AccumulatorToMemory(mov) => mov.to_bytes(),
             MoveInstruction::RegRegMove(mov) => mov.to_bytes(),
+            MoveInstruction::MemoryToSegment(mov) => mov.to_bytes(),
+            MoveInstruction::SegmentToMemory(mov) => mov.to_bytes(),
+            MoveInstruction::SegmentToRegister(mov) => mov.to_bytes(),
+            MoveInstruction::RegisterToSegment(mov) => mov.to_bytes(),
         }
     }
 }

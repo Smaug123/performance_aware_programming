@@ -2,15 +2,17 @@ use nom::{
     branch::alt,
     bytes::complete::{is_not, tag},
     character::complete::{
-        alphanumeric1, char, digit1, line_ending, multispace0, not_line_ending, one_of,
+        alphanumeric1, char, digit1, line_ending, multispace0, not_line_ending, one_of, space0,
     },
-    combinator::map_res,
-    multi::many0,
+    combinator::{map_res, opt},
+    error::FromExternalError,
+    multi::{many0, many1},
     sequence::{delimited, preceded, separated_pair, terminated, tuple},
     IResult,
 };
 
 use crate::{
+    arithmetic_expression::{ArithmeticExpression, Token},
     arithmetic_instruction::{
         ArithmeticInstruction, ArithmeticInstructionSelect, ArithmeticOperation, MemRegArithmetic,
         RegMemArithmetic, RegRegArithmetic,
@@ -19,13 +21,14 @@ use crate::{
     instruction::Instruction,
     jump_instruction::Jump,
     move_instruction::{
-        AccumulatorToMemory, ImmediateToRegister, ImmediateToRegisterOrMemory, MemRegMove,
-        MemoryToAccumulator, MoveInstruction, RegMemMove, RegRegMove,
+        AccumulatorToMemory, ImmediateToMemory, ImmediateToRegister, MemRegMove,
+        MemoryToAccumulator, MemoryToSegment, MoveInstruction, RegMemMove, RegRegMove,
+        RegisterToSegment, SegmentToMemory, SegmentToRegister,
     },
     program::Program,
     register::{
-        Base, ByteRegisterSubset, GeneralRegister, Register, RegisterSubset, SourceDest,
-        SpecialRegister,
+        Base, ByteRegisterSubset, GeneralRegister, Register, RegisterSubset, SegmentRegister,
+        SourceDest, SpecialRegister,
     },
     trivia_instruction::TriviaInstruction,
 };
@@ -43,13 +46,42 @@ where
     delimited(multispace0, inner, multispace0)
 }
 
+fn line_end(input: &str) -> IResult<&str, &str> {
+    alt((comment, line_ending))(input)
+}
+
+#[derive(Eq, PartialEq)]
+enum OffsetTag {
+    Byte,
+    Word,
+    None,
+}
+
 fn bracketed<'a, F, O, E: nom::error::ParseError<&'a str>>(
     inner: F,
-) -> impl FnMut(&'a str) -> IResult<&'a str, O, E>
+) -> impl FnMut(&'a str) -> IResult<&'a str, (OffsetTag, O), E>
 where
     F: FnMut(&'a str) -> IResult<&'a str, O, E>,
+    E: FromExternalError<&'a str, ()>,
 {
-    preceded(char('['), terminated(inner, char(']')))
+    map_res(
+        tuple((
+            opt(ws(alt((tag("byte"), tag("word"))))),
+            preceded(char('['), terminated(inner, char(']'))),
+        )),
+        |(tag, inner)| {
+            Ok::<_, _>(match tag {
+                None => (OffsetTag::None, inner),
+                Some(tag) => {
+                    if tag == "byte" {
+                        (OffsetTag::Byte, inner)
+                    } else {
+                        (OffsetTag::Word, inner)
+                    }
+                }
+            })
+        },
+    )
 }
 
 fn argument_sep(input: &str) -> IResult<&str, ()> {
@@ -57,7 +89,7 @@ fn argument_sep(input: &str) -> IResult<&str, ()> {
 }
 
 fn bits(input: &str) -> IResult<&str, u8> {
-    let p = preceded(tag("bits "), terminated(digit1, line_ending));
+    let p = preceded(tag("bits "), digit1);
     map_res(p, str::parse)(input)
 }
 
@@ -128,13 +160,14 @@ fn reg_reg_move_instruction(input: &str) -> IResult<&str, RegRegMove> {
     map_res(
         preceded(
             tag("mov "),
-            tuple((register, argument_sep, register, line_ending)),
+            tuple((terminated(register, argument_sep), register)),
         ),
-        |(dest, _, source, _)| Ok::<_, ()>(RegRegMove { dest, source }),
+        |(dest, source)| Ok::<_, ()>(RegRegMove { dest, source }),
     )(input)
 }
 
-fn direct_offset(input: &str) -> IResult<&str, u16> {
+// TODO: anything bracketed should be able to know if it's a byte or a word
+fn direct_offset(input: &str) -> IResult<&str, (OffsetTag, u16)> {
     bracketed(map_res(digit1, str::parse))(input)
 }
 
@@ -152,7 +185,7 @@ fn source_dest(input: &str) -> IResult<&str, SourceDest> {
     ))(input)
 }
 
-fn absolute_u8(input: &str) -> IResult<&str, u8> {
+fn literal_absolute_u8(input: &str) -> IResult<&str, u8> {
     alt((
         map_res(preceded(tag("0x"), alphanumeric1), |s: &str| {
             s.chars()
@@ -176,7 +209,7 @@ fn absolute_u8(input: &str) -> IResult<&str, u8> {
     ))(input)
 }
 
-fn absolute_u16(input: &str) -> IResult<&str, u16> {
+fn literal_absolute_u16(input: &str) -> IResult<&str, u16> {
     alt((
         map_res(preceded(tag("0x"), alphanumeric1), |s: &str| {
             s.chars()
@@ -200,6 +233,36 @@ fn absolute_u16(input: &str) -> IResult<&str, u16> {
     ))(input)
 }
 
+fn arithmetic_expression_u8(input: &str) -> IResult<&str, ArithmeticExpression<u8>> {
+    map_res(
+        many1(alt((
+            map_res(literal_absolute_u8, |x| Ok::<_, ()>(Token::Literal(x))),
+            map_res(ws(char('+')), |_| Ok::<_, ()>(Token::Add)),
+            map_res(ws(char('*')), |_| Ok::<_, ()>(Token::Times)),
+        ))),
+        |stream| Ok::<_, ()>(ArithmeticExpression::of_tokens(stream)),
+    )(input)
+}
+
+fn arithmetic_expression_u16(input: &str) -> IResult<&str, ArithmeticExpression<u16>> {
+    map_res(
+        many1(alt((
+            map_res(literal_absolute_u16, |x| Ok::<_, ()>(Token::Literal(x))),
+            map_res(ws(char('+')), |_| Ok::<_, ()>(Token::Add)),
+            map_res(ws(char('*')), |_| Ok::<_, ()>(Token::Times)),
+        ))),
+        |stream| Ok::<_, ()>(ArithmeticExpression::of_tokens(stream)),
+    )(input)
+}
+
+fn absolute_u8(input: &str) -> IResult<&str, u8> {
+    map_res(arithmetic_expression_u8, |expr| expr.eval())(input)
+}
+
+fn absolute_u16(input: &str) -> IResult<&str, u16> {
+    map_res(arithmetic_expression_u16, |expr| expr.eval())(input)
+}
+
 fn negative_u8(input: &str) -> IResult<&str, u8> {
     map_res(
         preceded(ws(char('-')), alt((digit1, preceded(tag("byte "), digit1)))),
@@ -214,24 +277,24 @@ fn negative_u16(input: &str) -> IResult<&str, u16> {
     )(input)
 }
 
-fn literal_u8(input: &str) -> IResult<&str, u8> {
-    alt((absolute_u8, negative_u8))(input)
-}
-
 fn literal_u16(input: &str) -> IResult<&str, u16> {
     alt((absolute_u16, negative_u16))(input)
 }
 
-fn effective_address(input: &str) -> IResult<&str, EffectiveAddress> {
+fn literal_u8(input: &str) -> IResult<&str, u8> {
+    alt((absolute_u8, negative_u8))(input)
+}
+
+fn effective_address(input: &str) -> IResult<&str, (OffsetTag, EffectiveAddress)> {
     alt((
         // Sum, no offset
         map_res(
             bracketed(tuple((base, ws(char('+')), source_dest))),
-            |(base, _, source_dest)| {
-                Ok::<_, ()>(EffectiveAddress::Sum(WithOffset::Basic((
-                    base,
-                    source_dest,
-                ))))
+            |(tag, (base, _, source_dest))| {
+                Ok::<_, ()>((
+                    tag,
+                    EffectiveAddress::Sum(WithOffset::Basic((base, source_dest))),
+                ))
             },
         ),
         // Sum, with offset
@@ -242,11 +305,11 @@ fn effective_address(input: &str) -> IResult<&str, EffectiveAddress> {
                 source_dest,
                 alt((preceded(ws(char('+')), absolute_u8), negative_u8)),
             ))),
-            |(base, _, source_dest, offset)| {
-                Ok::<_, ()>(EffectiveAddress::Sum(WithOffset::WithU8(
-                    (base, source_dest),
-                    offset,
-                )))
+            |(tag, (base, _, source_dest, offset))| {
+                Ok::<_, ()>((
+                    tag,
+                    EffectiveAddress::Sum(WithOffset::WithU8((base, source_dest), offset)),
+                ))
             },
         ),
         map_res(
@@ -256,29 +319,30 @@ fn effective_address(input: &str) -> IResult<&str, EffectiveAddress> {
                 source_dest,
                 alt((preceded(ws(char('+')), absolute_u16), negative_u16)),
             ))),
-            |(base, _, source_dest, offset)| {
-                Ok::<_, ()>(EffectiveAddress::Sum(WithOffset::WithU16(
-                    (base, source_dest),
-                    offset,
-                )))
+            |(tag, (base, _, source_dest, offset))| {
+                Ok::<_, ()>((
+                    tag,
+                    EffectiveAddress::Sum(WithOffset::WithU16((base, source_dest), offset)),
+                ))
             },
         ),
         // Lookup
-        map_res(source_dest, |source_dest| {
-            Ok::<_, ()>(EffectiveAddress::SpecifiedIn(WithOffset::Basic(
-                source_dest,
-            )))
+        map_res(bracketed(source_dest), |(tag, source_dest)| {
+            Ok::<_, ()>((
+                tag,
+                EffectiveAddress::SpecifiedIn(WithOffset::Basic(source_dest)),
+            ))
         }),
         map_res(
             bracketed(tuple((
                 source_dest,
                 alt((preceded(ws(char('+')), absolute_u8), negative_u8)),
             ))),
-            |(source_dest, offset)| {
-                Ok::<_, ()>(EffectiveAddress::SpecifiedIn(WithOffset::WithU8(
-                    source_dest,
-                    offset,
-                )))
+            |(tag, (source_dest, offset))| {
+                Ok::<_, ()>((
+                    tag,
+                    EffectiveAddress::SpecifiedIn(WithOffset::WithU8(source_dest, offset)),
+                ))
             },
         ),
         map_res(
@@ -286,71 +350,138 @@ fn effective_address(input: &str) -> IResult<&str, EffectiveAddress> {
                 source_dest,
                 alt((preceded(ws(char('+')), absolute_u16), negative_u16)),
             ))),
-            |(source_dest, offset)| {
-                Ok::<_, ()>(EffectiveAddress::SpecifiedIn(WithOffset::WithU16(
-                    source_dest,
-                    offset,
-                )))
+            |(tag, (source_dest, offset))| {
+                Ok::<_, ()>((
+                    tag,
+                    EffectiveAddress::SpecifiedIn(WithOffset::WithU16(source_dest, offset)),
+                ))
             },
         ),
         // Offset from BX
-        map_res(bracketed(tag("bx")), |_| {
-            Ok::<_, ()>(EffectiveAddress::Bx(WithOffset::Basic(())))
+        map_res(bracketed(tag("bx")), |(tag, _)| {
+            Ok::<_, ()>((tag, EffectiveAddress::Bx(WithOffset::Basic(()))))
         }),
         map_res(
-            bracketed(tuple((
+            bracketed(preceded(
                 tag("bx"),
                 alt((preceded(ws(char('+')), absolute_u8), negative_u8)),
-            ))),
-            |(_, offset)| Ok::<_, ()>(EffectiveAddress::Bx(WithOffset::WithU8((), offset))),
+            )),
+            |(tag, offset)| {
+                Ok::<_, ()>((tag, EffectiveAddress::Bx(WithOffset::WithU8((), offset))))
+            },
         ),
         map_res(
-            bracketed(tuple((
+            bracketed(preceded(
                 tag("bx"),
                 alt((preceded(ws(char('+')), absolute_u16), negative_u16)),
-            ))),
-            |(_, offset)| Ok::<_, ()>(EffectiveAddress::Bx(WithOffset::WithU16((), offset))),
+            )),
+            |(tag, offset)| {
+                Ok::<_, ()>((tag, EffectiveAddress::Bx(WithOffset::WithU16((), offset))))
+            },
         ),
         // Direct memory address
-        map_res(direct_offset, |offset| {
-            Ok::<_, ()>(EffectiveAddress::Direct(offset))
+        map_res(direct_offset, |(tag, offset)| {
+            Ok::<_, ()>((tag, EffectiveAddress::Direct(offset)))
         }),
         // Offset from base pointer
         map_res(
-            bracketed(tuple((
+            bracketed(preceded(
                 tag("bp"),
                 alt((preceded(ws(char('+')), absolute_u8), negative_u8)),
-            ))),
-            |(_, offset)| Ok::<_, ()>(EffectiveAddress::BasePointer(offset)),
+            )),
+            |(tag, offset)| Ok::<_, ()>((tag, EffectiveAddress::BasePointer(offset))),
         ),
         map_res(
-            bracketed(tuple((
+            bracketed(preceded(
                 tag("bp"),
                 alt((preceded(ws(char('+')), absolute_u16), negative_u16)),
-            ))),
-            |(_, offset)| Ok::<_, ()>(EffectiveAddress::BasePointerWide(offset)),
+            )),
+            |(tag, offset)| Ok::<_, ()>((tag, EffectiveAddress::BasePointerWide(offset))),
         ),
         // Specific support for [bp], which can't be represented as a simple instruction
-        map_res(bracketed(tag("bp")), |_| {
-            Ok::<_, ()>(EffectiveAddress::BasePointer(0))
+        map_res(bracketed(tag("bp")), |(tag, _)| {
+            Ok::<_, ()>((tag, EffectiveAddress::BasePointer(0)))
         }),
     ))(input)
+}
+
+fn segment_register(input: &str) -> IResult<&str, SegmentRegister> {
+    map_res(
+        terminated(alt((char('s'), char('d'), char('e'), char('c'))), char('s')),
+        |c| match c {
+            's' => Ok::<_, ()>(SegmentRegister::Stack),
+            'd' => Ok(SegmentRegister::Data),
+            'e' => Ok(SegmentRegister::Extra),
+            'c' => Ok(SegmentRegister::Code),
+            _ => unreachable!(),
+        },
+    )(input)
+}
+
+fn reg_to_seg_move_instruction(input: &str) -> IResult<&str, RegisterToSegment> {
+    map_res(
+        preceded(
+            tag("mov "),
+            tuple((terminated(segment_register, ws(char(','))), register)),
+        ),
+        |(dest, source)| Ok::<_, ()>(RegisterToSegment { dest, source }),
+    )(input)
+}
+
+fn mem_to_seg_move_instruction(input: &str) -> IResult<&str, MemoryToSegment> {
+    map_res(
+        preceded(
+            tag("mov "),
+            tuple((
+                terminated(segment_register, ws(char(','))),
+                effective_address,
+            )),
+        ),
+        |(dest, (tag, source))| match tag {
+            OffsetTag::Byte => Err(()),
+            _ => Ok::<_, ()>(MemoryToSegment { dest, source }),
+        },
+    )(input)
+}
+
+fn seg_to_mem_move_instruction(input: &str) -> IResult<&str, SegmentToMemory> {
+    map_res(
+        preceded(
+            tag("mov "),
+            tuple((
+                terminated(effective_address, ws(char(','))),
+                segment_register,
+            )),
+        ),
+        |((tag, dest), source)| match tag {
+            OffsetTag::Byte => Err(()),
+            _ => Ok::<_, ()>(SegmentToMemory { dest, source }),
+        },
+    )(input)
+}
+
+fn seg_to_reg_move_instruction(input: &str) -> IResult<&str, SegmentToRegister> {
+    map_res(
+        preceded(
+            tag("mov "),
+            tuple((terminated(register, ws(char(','))), segment_register)),
+        ),
+        |(dest, source)| Ok::<_, ()>(SegmentToRegister { dest, source }),
+    )(input)
 }
 
 fn reg_mem_move_instruction(input: &str) -> IResult<&str, RegMemMove> {
     map_res(
         preceded(
             tag("mov "),
-            tuple((
-                terminated(effective_address, argument_sep),
-                terminated(register, line_ending),
-            )),
+            tuple((terminated(effective_address, argument_sep), register)),
         ),
-        |(address, register)| {
-            Ok::<_, ()>(RegMemMove {
+        |((tag, address), register)| match (tag, register.is_wide()) {
+            (OffsetTag::Word, false) => Err(()),
+            _ => Ok::<_, ()>(RegMemMove {
                 dest: address,
                 source: register,
-            })
+            }),
         },
     )(input)
 }
@@ -359,16 +490,14 @@ fn mem_reg_move_instruction(input: &str) -> IResult<&str, MemRegMove> {
     map_res(
         preceded(
             tag("mov "),
-            tuple((
-                terminated(register, argument_sep),
-                terminated(effective_address, line_ending),
-            )),
+            tuple((terminated(register, argument_sep), effective_address)),
         ),
-        |(register, address)| {
-            Ok::<_, ()>(MemRegMove {
+        |(register, (tag, address))| match (tag, register.is_wide()) {
+            (OffsetTag::Word, false) => Err(()),
+            _ => Ok::<_, ()>(MemRegMove {
                 dest: register,
                 source: address,
-            })
+            }),
         },
     )(input)
 }
@@ -392,18 +521,12 @@ fn immediate_to_register_instruction(input: &str) -> IResult<&str, ImmediateToRe
         preceded(
             tag("mov "),
             alt((
-                terminated(
-                    map_res(immediate_wide, |(register, x)| {
-                        Ok::<_, ()>((register, Err(x)))
-                    }),
-                    line_ending,
-                ),
-                terminated(
-                    map_res(immediate_byte, |(register, x)| {
-                        Ok::<_, ()>((register, Ok(x)))
-                    }),
-                    line_ending,
-                ),
+                map_res(immediate_wide, |(register, x)| {
+                    Ok::<_, ()>((register, Err(x)))
+                }),
+                map_res(immediate_byte, |(register, x)| {
+                    Ok::<_, ()>((register, Ok(x)))
+                }),
             )),
         ),
         |(register, contents)| {
@@ -421,7 +544,7 @@ fn immediate_to_register_instruction(input: &str) -> IResult<&str, ImmediateToRe
     )(input)
 }
 
-fn immediate_to_memory_instruction(input: &str) -> IResult<&str, ImmediateToRegisterOrMemory> {
+fn immediate_to_memory_instruction(input: &str) -> IResult<&str, ImmediateToMemory> {
     map_res(
         tuple((
             terminated(preceded(tag("mov "), effective_address), argument_sep),
@@ -430,11 +553,19 @@ fn immediate_to_memory_instruction(input: &str) -> IResult<&str, ImmediateToRegi
                 map_res(literal_u16, |x| Ok::<_, ()>(Err(x))),
             )),
         )),
-        |(addr, x)| {
-            Ok::<_, ()>(match x {
-                Ok(b) => ImmediateToRegisterOrMemory::Byte(addr, b),
-                Err(b) => ImmediateToRegisterOrMemory::Word(addr, b),
-            })
+        |((tag, addr), x)| match tag {
+            OffsetTag::None => Ok::<_, ()>(match x {
+                Ok(b) => ImmediateToMemory::Byte(addr, b),
+                Err(b) => ImmediateToMemory::Word(addr, b),
+            }),
+            OffsetTag::Byte => match x {
+                Ok(b) => Ok(ImmediateToMemory::Byte(addr, b)),
+                Err(b) => panic!("Can't fit literal {b} into byte memory"),
+            },
+            OffsetTag::Word => match x {
+                Ok(b) => Ok(ImmediateToMemory::Word(addr, b as u16)),
+                Err(b) => Ok(ImmediateToMemory::Word(addr, b)),
+            },
         },
     )(input)
 }
@@ -448,9 +579,13 @@ fn memory_to_accumulator_instruction(input: &str) -> IResult<&str, MemoryToAccum
                 bracketed(literal_u16),
             )),
         ),
-        |(acc, address)| {
+        |(acc, (tag, address))| {
             let is_wide = acc == 'x';
-            Ok::<_, ()>(MemoryToAccumulator { address, is_wide })
+            if !is_wide && tag == OffsetTag::Word {
+                Err(())
+            } else {
+                Ok(MemoryToAccumulator { address, is_wide })
+            }
         },
     )(input)
 }
@@ -464,9 +599,13 @@ fn accumulator_to_memory_instruction(input: &str) -> IResult<&str, AccumulatorTo
                 alt((char('h'), char('x'))),
             )),
         ),
-        |(address, acc)| {
+        |((tag, address), acc)| {
             let is_wide = acc == 'x';
-            Ok::<_, ()>(AccumulatorToMemory { address, is_wide })
+            if is_wide && tag == OffsetTag::Byte {
+                Err(())
+            } else {
+                Ok(AccumulatorToMemory { address, is_wide })
+            }
         },
     )(input)
 }
@@ -522,18 +661,20 @@ fn arithmetic_select(input: &str) -> IResult<&str, ArithmeticInstructionSelect> 
         ),
         map_res(
             tuple((terminated(register, argument_sep), effective_address)),
-            |(dest, source)| {
-                Ok::<_, ()>(ArithmeticInstructionSelect::MemoryToRegister(
+            |(dest, (tag, source))| match (tag, dest.is_wide()) {
+                (OffsetTag::Word, false) => Err(()),
+                _ => Ok(ArithmeticInstructionSelect::MemoryToRegister(
                     MemRegArithmetic { source, dest },
-                ))
+                )),
             },
         ),
         map_res(
             tuple((terminated(effective_address, argument_sep), register)),
-            |(dest, source)| {
-                Ok::<_, ()>(ArithmeticInstructionSelect::RegisterToMemory(
+            |((tag, dest), source)| match (tag, source.is_wide()) {
+                (OffsetTag::Byte, true) => Err(()),
+                _ => Ok(ArithmeticInstructionSelect::RegisterToMemory(
                     RegMemArithmetic { source, dest },
-                ))
+                )),
             },
         ),
         map_res(
@@ -561,58 +702,24 @@ fn arithmetic_select(input: &str) -> IResult<&str, ArithmeticInstructionSelect> 
             },
         ),
         map_res(
-            tuple((
-                terminated(preceded(tag("word "), effective_address), argument_sep),
-                literal_u8,
-            )),
-            |(addr, literal)| {
+            tuple((terminated(effective_address, argument_sep), literal_u8)),
+            |((tag, addr), literal)| {
                 Ok::<_, ()>(
                     ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryByte(
-                        addr, literal, true,
-                    ),
-                )
-            },
-        ),
-        map_res(
-            tuple((
-                terminated(preceded(tag("word "), effective_address), argument_sep),
-                literal_u16,
-            )),
-            |(addr, literal)| {
-                Ok::<_, ()>(
-                    ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryWord(addr, literal),
-                )
-            },
-        ),
-        map_res(
-            tuple((
-                terminated(preceded(tag("byte "), effective_address), argument_sep),
-                literal_u8,
-            )),
-            |(addr, literal)| {
-                Ok::<_, ()>(
-                    ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryByte(
-                        addr, literal, false,
+                        addr,
+                        literal,
+                        tag == OffsetTag::Word,
                     ),
                 )
             },
         ),
         map_res(
             tuple((terminated(effective_address, argument_sep), literal_u16)),
-            |(addr, literal)| {
-                Ok::<_, ()>(
+            |((tag, addr), literal)| match tag {
+                OffsetTag::Byte => Err(()),
+                _ => Ok::<_, ()>(
                     ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryWord(addr, literal),
-                )
-            },
-        ),
-        map_res(
-            tuple((terminated(effective_address, argument_sep), literal_u8)),
-            |(addr, literal)| {
-                Ok::<_, ()>(
-                    ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryByte(
-                        addr, literal, false,
-                    ),
-                )
+                ),
             },
         ),
     ))(input)
@@ -620,16 +727,13 @@ fn arithmetic_select(input: &str) -> IResult<&str, ArithmeticInstructionSelect> 
 
 fn arithmetic_instruction(input: &str) -> IResult<&str, ArithmeticInstruction> {
     map_res(
-        tuple((
-            terminated(arithmetic_op, char(' ')),
-            terminated(arithmetic_select, line_ending),
-        )),
+        tuple((terminated(arithmetic_op, char(' ')), arithmetic_select)),
         |(op, instruction)| Ok::<_, ()>(ArithmeticInstruction { op, instruction }),
     )(input)
 }
 
 fn label(input: &str) -> IResult<&str, &str> {
-    terminated(is_not(":\r\n \t"), terminated(char(':'), line_ending))(input)
+    terminated(is_not(":\r\n \t"), char(':'))(input)
 }
 
 fn label_terminator(input: &str) -> IResult<&str, &str> {
@@ -728,7 +832,19 @@ fn move_instruction(input: &str) -> IResult<&str, MoveInstruction> {
             Ok::<_, ()>(MoveInstruction::ImmediateToRegister(v))
         }),
         map_res(immediate_to_memory_instruction, |v| {
-            Ok::<_, ()>(MoveInstruction::ImmediateToRegisterOrMemory(v))
+            Ok::<_, ()>(MoveInstruction::ImmediateToMemory(v))
+        }),
+        map_res(seg_to_mem_move_instruction, |v| {
+            Ok::<_, ()>(MoveInstruction::SegmentToMemory(v))
+        }),
+        map_res(seg_to_reg_move_instruction, |v| {
+            Ok::<_, ()>(MoveInstruction::SegmentToRegister(v))
+        }),
+        map_res(reg_to_seg_move_instruction, |v| {
+            Ok::<_, ()>(MoveInstruction::RegisterToSegment(v))
+        }),
+        map_res(mem_to_seg_move_instruction, |v| {
+            Ok::<_, ()>(MoveInstruction::MemoryToSegment(v))
         }),
     ))(input)
 }
@@ -746,20 +862,19 @@ fn instruction(input: &str) -> IResult<&str, Instruction<&str>> {
     ))(input)
 }
 
-fn trivia(input: &str) -> IResult<&str, &str> {
-    alt((comment, line_ending))(input)
-}
-
 pub fn program(input: &str) -> IResult<&str, Program<Vec<Instruction<&str>>, &str>> {
     map_res(
         preceded(
-            many0(trivia),
+            many0(line_end),
             separated_pair(
                 bits,
-                many0(trivia),
+                many0(line_end),
                 many0(alt((
-                    map_res(instruction, |i| Ok::<_, ()>(Some(i))),
-                    map_res(trivia, |_| Ok::<_, ()>(None)),
+                    map_res(
+                        terminated(preceded(space0, instruction), preceded(space0, line_end)),
+                        |i| Ok::<_, ()>(Some(i)),
+                    ),
+                    map_res(preceded(space0, line_end), |_| Ok::<_, ()>(None)),
                 ))),
             ),
         ),
@@ -771,4 +886,65 @@ pub fn program(input: &str) -> IResult<&str, Program<Vec<Instruction<&str>>, &st
             })
         },
     )(input)
+}
+
+#[cfg(test)]
+mod test_assembly {
+    use crate::{
+        arithmetic_instruction::{
+            ArithmeticInstruction, ArithmeticInstructionSelect, ArithmeticOperation,
+        },
+        assembly::instruction,
+        effective_address::{EffectiveAddress, WithOffset},
+        instruction::Instruction,
+        move_instruction::{ImmediateToMemory, MoveInstruction},
+        register::{GeneralRegister, Register, RegisterSubset},
+    };
+
+    #[test]
+    fn arithmetic_expression_parse() {
+        let (remaining, parsed) = instruction("add bx, 4*64").unwrap();
+        assert_eq!(remaining, "");
+        assert_eq!(
+            parsed,
+            Instruction::Arithmetic(ArithmeticInstruction {
+                op: ArithmeticOperation::Add,
+                instruction: ArithmeticInstructionSelect::ImmediateToRegisterWord(
+                    Register::General(GeneralRegister::B, RegisterSubset::All),
+                    4 * 64,
+                    false
+                )
+            })
+        )
+    }
+
+    #[test]
+    fn arithmetic_expression_parse_2() {
+        let (remaining, parsed) = instruction("add cx, 166").unwrap();
+        assert_eq!(remaining, "");
+        assert_eq!(
+            parsed,
+            Instruction::Arithmetic(ArithmeticInstruction {
+                op: ArithmeticOperation::Add,
+                instruction: ArithmeticInstructionSelect::ImmediateToRegisterByte(
+                    Register::General(GeneralRegister::C, RegisterSubset::All),
+                    166,
+                    true
+                )
+            })
+        )
+    }
+
+    #[test]
+    fn mov_parse() {
+        let (remaining, parsed) = instruction("mov byte [bx + 61*4 + 1], 255").unwrap();
+        assert_eq!(remaining, "");
+        assert_eq!(
+            parsed,
+            Instruction::Move(MoveInstruction::ImmediateToMemory(ImmediateToMemory::Byte(
+                EffectiveAddress::Bx(WithOffset::WithU8((), 61 * 4 + 1)),
+                255
+            )))
+        )
+    }
 }

@@ -1,3 +1,4 @@
+mod arithmetic_expression;
 pub mod arithmetic_instruction;
 pub mod assembly;
 pub mod computer;

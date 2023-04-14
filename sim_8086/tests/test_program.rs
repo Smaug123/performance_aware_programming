@@ -10,7 +10,9 @@ mod test_program {
             ArithmeticInstruction, ArithmeticInstructionSelect, ArithmeticOperation,
         },
         assembly,
+        effective_address::{EffectiveAddress, WithOffset},
         instruction::Instruction,
+        move_instruction::{ImmediateToMemory, MoveInstruction},
         program::Program,
         register::{GeneralRegister, Register, RegisterSubset},
     };
@@ -111,8 +113,8 @@ mod test_program {
                     {
                         println!(
                             "Different instruction. From disassembly: {dis} ({:?}). From our compilation: {compiled} ({:?}).",
-                            compiled_bytes,
-                            dis_bytes
+                            dis_bytes,
+                            compiled_bytes
                         );
                         is_different = true;
                     }
@@ -277,30 +279,27 @@ mod test_program {
         test_disassembler(asm, bytecode)
     }
 
-    /*
-    We have not yet implemented the segment registers, so this test can't pass.
-        #[test]
-        fn test_challenge_register_movs_parser() {
-            let input_asm = include_str!(
-                "../../computer_enhance/perfaware/part1/listing_0045_challenge_register_movs.asm"
-            );
-            let input_bytecode = include_bytes!(
-                "../../computer_enhance/perfaware/part1/listing_0045_challenge_register_movs"
-            );
-            test_parser(input_asm, input_bytecode)
-        }
+    #[test]
+    fn test_challenge_register_movs_parser() {
+        let input_asm = include_str!(
+            "../../computer_enhance/perfaware/part1/listing_0045_challenge_register_movs.asm"
+        );
+        let input_bytecode = include_bytes!(
+            "../../computer_enhance/perfaware/part1/listing_0045_challenge_register_movs"
+        );
+        test_parser(input_asm, input_bytecode)
+    }
 
-        #[test]
-        fn test_challenge_register_movs_disassembler() {
-            let bytecode = include_bytes!(
-                "../../computer_enhance/perfaware/part1/listing_0045_challenge_register_movs"
-            );
-            let asm = include_str!(
-                "../../computer_enhance/perfaware/part1/listing_0045_challenge_register_movs.asm"
-            );
-            test_disassembler(asm, bytecode)
-        }
-    */
+    #[test]
+    fn test_challenge_register_movs_disassembler() {
+        let bytecode = include_bytes!(
+            "../../computer_enhance/perfaware/part1/listing_0045_challenge_register_movs"
+        );
+        let asm = include_str!(
+            "../../computer_enhance/perfaware/part1/listing_0045_challenge_register_movs.asm"
+        );
+        test_disassembler(asm, bytecode)
+    }
 
     #[test]
     fn test_add_sub_cmp_parser() {
@@ -410,6 +409,124 @@ mod test_program {
         // We implemented `add ax, 1` using "immediate to accumulator";
         // in this example, Casey implemented it using "immediate to register".
         allowed.insert((vec![5, 1, 0], vec![131, 192, 1]));
+        test_disassembler_lax(asm, bytecode, allowed)
+    }
+
+    #[test]
+    fn test_memory_mov_parser() {
+        let input_asm =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0051_memory_mov.asm");
+        let input_bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0051_memory_mov");
+        test_parser(input_asm, input_bytecode)
+    }
+
+    #[test]
+    fn test_memory_mov_disassembler() {
+        let bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0051_memory_mov");
+        let asm =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0051_memory_mov.asm");
+        test_disassembler(asm, bytecode)
+    }
+
+    #[test]
+    fn test_memory_add_loop_parser() {
+        let input_asm =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0052_memory_add_loop.asm");
+        let input_bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0052_memory_add_loop");
+        test_parser(input_asm, input_bytecode)
+    }
+
+    #[test]
+    fn test_memory_add_loop_disassembler() {
+        let bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0052_memory_add_loop");
+        let asm =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0052_memory_add_loop.asm");
+        test_disassembler(asm, bytecode)
+    }
+
+    #[test]
+    fn test_add_loop_challenge_parser() {
+        let input_asm = include_str!(
+            "../../computer_enhance/perfaware/part1/listing_0053_add_loop_challenge.asm"
+        );
+        let input_bytecode = include_bytes!(
+            "../../computer_enhance/perfaware/part1/listing_0053_add_loop_challenge"
+        );
+        test_parser(input_asm, input_bytecode)
+    }
+
+    #[test]
+    fn test_add_loop_challenge_disassembler() {
+        let bytecode = include_bytes!(
+            "../../computer_enhance/perfaware/part1/listing_0053_add_loop_challenge"
+        );
+        let asm = include_str!(
+            "../../computer_enhance/perfaware/part1/listing_0053_add_loop_challenge.asm"
+        );
+        test_disassembler(asm, bytecode)
+    }
+
+    #[test]
+    fn test_draw_rectangle_parser() {
+        let input_asm =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0054_draw_rectangle.asm");
+        let input_bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0054_draw_rectangle");
+        test_parser(input_asm, input_bytecode)
+    }
+
+    #[test]
+    fn test_draw_rectangle_disassembler() {
+        let bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0054_draw_rectangle");
+        let asm =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0054_draw_rectangle.asm");
+        test_disassembler(asm, bytecode)
+    }
+
+    #[test]
+    fn test_challenge_rectangle_parser() {
+        let input_asm = include_str!(
+            "../../computer_enhance/perfaware/part1/listing_0055_challenge_rectangle.asm"
+        );
+        let input_bytecode = include_bytes!(
+            "../../computer_enhance/perfaware/part1/listing_0055_challenge_rectangle"
+        );
+        let mut swaps = HashMap::new();
+        swaps.insert(
+            Instruction::Move(MoveInstruction::ImmediateToMemory(ImmediateToMemory::Byte(
+                EffectiveAddress::Bx(WithOffset::WithU8((), 61 * 4 + 1)),
+                255,
+            ))),
+            Instruction::Move(MoveInstruction::ImmediateToMemory(ImmediateToMemory::Byte(
+                EffectiveAddress::Bx(WithOffset::WithU16((), 61 * 4 + 1)),
+                255,
+            ))),
+        );
+        test_parser_lax(input_asm, input_bytecode, swaps)
+    }
+
+    #[test]
+    fn test_challenge_rectangle_disassembler() {
+        let bytecode = include_bytes!(
+            "../../computer_enhance/perfaware/part1/listing_0055_challenge_rectangle"
+        );
+        let asm = include_str!(
+            "../../computer_enhance/perfaware/part1/listing_0055_challenge_rectangle.asm"
+        );
+        let mut allowed = HashSet::new();
+        // We implemented `mov [bx + 61*4 + 1], 255` using "immediate to memory, 8 bit displacement",
+        // taking only four bytes;
+        // in this example, Casey implemented it using "immediate to memory, 16 bit displacement",
+        // which takes five.
+        // The manual is explicit that this situation is allowed:
+        // If the displacement is only a single byte, the 8086 or 8088 automatically sign-extends
+        // this quantity to 16-bits before using the information in further address calculations.
+        allowed.insert((vec![198, 71, 245, 255], vec![198, 135, 245, 0, 255]));
         test_disassembler_lax(asm, bytecode, allowed)
     }
 }
