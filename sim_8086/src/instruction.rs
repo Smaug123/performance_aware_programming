@@ -33,46 +33,7 @@ where
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Instruction::Move(instruction) => f.write_fmt(format_args!("{}", instruction)),
-            Instruction::Arithmetic(op) => {
-                f.write_fmt(format_args!("{} ", op.op))?;
-                match &op.instruction {
-                    ArithmeticInstructionSelect::RegisterToRegister(inst) => {
-                        f.write_fmt(format_args!("{}, {}", inst.dest, inst.source))
-                    }
-                    ArithmeticInstructionSelect::RegisterToMemory(inst) => {
-                        f.write_fmt(format_args!("{}, {}", inst.dest, inst.source))
-                    }
-                    ArithmeticInstructionSelect::MemoryToRegister(inst) => {
-                        f.write_fmt(format_args!("{}, {}", inst.dest, inst.source))
-                    }
-                    ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryByte(addr, data, _) => {
-                        f.write_fmt(format_args!("{}, {}", addr, data))
-                    }
-                    ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryWord(addr, data) => {
-                        f.write_fmt(format_args!("{}, {}", addr, data))
-                    }
-                    ArithmeticInstructionSelect::ImmediateToRegisterByte(addr, data, signed) => {
-                        if *signed {
-                            f.write_fmt(format_args!("{}, {} ; signed byte", addr, *data))
-                        } else {
-                            f.write_fmt(format_args!("{}, {}", addr, data))
-                        }
-                    }
-                    ArithmeticInstructionSelect::ImmediateToRegisterWord(addr, data, signed) => {
-                        if *signed {
-                            f.write_fmt(format_args!("{}, {} ; signed word", addr, *data))
-                        } else {
-                            f.write_fmt(format_args!("{}, {}", addr, data))
-                        }
-                    }
-                    ArithmeticInstructionSelect::ImmediateToAccByte(data) => {
-                        f.write_fmt(format_args!("al, {}", data))
-                    }
-                    ArithmeticInstructionSelect::ImmediateToAccWord(data) => {
-                        f.write_fmt(format_args!("ax, {}", data))
-                    }
-                }
-            }
+            Instruction::Arithmetic(op) => f.write_fmt(format_args!("{}", op)),
             Instruction::Jump(instruction, offset) => {
                 f.write_fmt(format_args!("{} ; {}", instruction, offset))
             }
