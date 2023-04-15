@@ -666,7 +666,7 @@ impl Computer {
                 // CPAS can all be set by Cmp
                 let auxiliary_carry = to_arg % 16 < incoming_arg_raw % 16;
                 if to_arg < incoming_arg {
-                    let result = u16::MAX - (incoming_arg - to_arg);
+                    let result = u16::MAX - (incoming_arg - to_arg) + 1;
                     (
                         result,
                         ResultFlags {
@@ -781,12 +781,10 @@ impl Computer {
             flags.auxiliary_carry,
         );
         self.set_flag(Flag::Status(StatusFlag::Carry), flags.carry);
-        if flags.should_write {
-            self.set_flag(
-                Flag::Status(StatusFlag::Parity),
-                !Self::is_odd_parity(new_value % 256),
-            )
-        }
+        self.set_flag(
+            Flag::Status(StatusFlag::Parity),
+            !Self::is_odd_parity(new_value % 256),
+        );
         let flags_desc = if old_flags == self.flags {
             "".to_owned()
         } else {
@@ -888,7 +886,13 @@ impl Computer {
             }
         };
         // In NASM, the dollar sign is an offset *without* including the bytes of the jump.
-        format!("{} ${}{}{}", jump, if offset > 0 { "+" } else { "" }, offset + 2, ip_desc)
+        format!(
+            "{} ${}{}{}",
+            jump,
+            if offset > 0 { "+" } else { "" },
+            offset + 2,
+            ip_desc
+        )
     }
 
     pub fn get_program_counter(&self) -> u16 {
