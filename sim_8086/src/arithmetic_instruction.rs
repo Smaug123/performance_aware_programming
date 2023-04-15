@@ -45,7 +45,11 @@ impl Display for ArithmeticInstruction {
             }
             ArithmeticInstructionSelect::ImmediateToRegisterByte(addr, data, signed) => {
                 if *signed {
-                    f.write_fmt(format_args!("{}, {} ; signed byte", addr, *data))
+                    if *data >= 128 {
+                        f.write_fmt(format_args!("{}, -{}", addr, 255 - *data + 1))
+                    } else {
+                        f.write_fmt(format_args!("{}, {}", addr, *data))
+                    }
                 } else {
                     f.write_fmt(format_args!("{}, {}", addr, data))
                 }
