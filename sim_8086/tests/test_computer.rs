@@ -152,7 +152,7 @@ mod test_computer {
             include_bytes!("../../computer_enhance/perfaware/part1/listing_0051_memory_mov");
         let expected_trace =
             include_str!("../../computer_enhance/perfaware/part1/listing_0051_memory_mov.txt");
-        test_sim(input_bytecode, expected_trace)
+        test_sim(input_bytecode, expected_trace, true)
     }
 
     #[test]
@@ -161,7 +161,7 @@ mod test_computer {
             include_bytes!("../../computer_enhance/perfaware/part1/listing_0052_memory_add_loop");
         let expected_trace =
             include_str!("../../computer_enhance/perfaware/part1/listing_0052_memory_add_loop.txt");
-        test_sim(input_bytecode, expected_trace)
+        test_sim(input_bytecode, expected_trace, true)
     }
 
     #[test]
@@ -172,7 +172,7 @@ mod test_computer {
         let expected_trace = include_str!(
             "../../computer_enhance/perfaware/part1/listing_0053_add_loop_challenge.txt"
         );
-        test_sim(input_bytecode, expected_trace)
+        test_sim(input_bytecode, expected_trace, true)
     }
 
     #[test]
@@ -181,7 +181,7 @@ mod test_computer {
             include_bytes!("../../computer_enhance/perfaware/part1/listing_0054_draw_rectangle");
         let expected_trace =
             include_str!("../../computer_enhance/perfaware/part1/listing_0054_draw_rectangle.txt");
-        test_sim(input_bytecode, expected_trace)
+        test_sim(input_bytecode, expected_trace, true)
     }
 
     #[test]
@@ -192,7 +192,7 @@ mod test_computer {
         let expected_trace = include_str!(
             "../../computer_enhance/perfaware/part1/listing_0055_challenge_rectangle.txt"
         );
-        test_sim(input_bytecode, expected_trace)
+        test_sim(input_bytecode, expected_trace, true)
     }
     */
 }
