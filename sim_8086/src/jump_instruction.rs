@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use arbitrary::Arbitrary;
 
-#[derive(Eq, PartialEq, Debug, Hash, Clone, Arbitrary)]
+#[derive(Eq, PartialEq, Debug, Hash, Clone, Copy, Arbitrary)]
 pub enum Jump {
     Je,
     Jl,

@@ -6,6 +6,7 @@ use crate::{
     },
     effective_address::{EffectiveAddress, WithOffset},
     instruction::Instruction,
+    jump_instruction::Jump,
     move_instruction::{ImmediateToMemory, ImmediateToRegister, MoveInstruction},
     register::{
         Base, ByteRegisterSubset, GeneralRegister, Register, RegisterSubset, SegmentRegister,
@@ -130,11 +131,11 @@ impl Flags {
 }
 
 pub struct Computer {
+    program_counter: u16,
+    flags: Flags,
+    registers: Registers,
     #[allow(dead_code)]
     memory: [u8; 65536],
-    registers: Registers,
-    flags: Flags,
-    program_counter: u16,
 }
 
 struct ResultFlags {
@@ -814,6 +815,82 @@ impl Computer {
         format!("{instruction} ;{result_desc}{ip_desc}{flags_desc}")
     }
 
+    fn step_jump(&mut self, jump: Jump, offset: i8, old_ip: Option<u16>) -> String {
+        let should_jump = match jump {
+            Jump::Je => self.flags.get(Flag::Status(StatusFlag::Zero)),
+            Jump::Jl => {
+                self.flags.get(Flag::Status(StatusFlag::Overflow))
+                    ^ self.flags.get(Flag::Status(StatusFlag::Sign))
+            }
+            Jump::Jle => {
+                (self.flags.get(Flag::Status(StatusFlag::Overflow))
+                    ^ self.flags.get(Flag::Status(StatusFlag::Sign)))
+                    | (self.flags.get(Flag::Status(StatusFlag::Zero)))
+            }
+            Jump::Jb => self.flags.get(Flag::Status(StatusFlag::Carry)),
+            Jump::Jbe => {
+                self.flags.get(Flag::Status(StatusFlag::Zero))
+                    | self.flags.get(Flag::Status(StatusFlag::Carry))
+            }
+            Jump::Jp => self.flags.get(Flag::Status(StatusFlag::Parity)),
+            Jump::Jo => self.flags.get(Flag::Status(StatusFlag::Overflow)),
+            Jump::Js => self.flags.get(Flag::Status(StatusFlag::Sign)),
+            Jump::Jne => !self.flags.get(Flag::Status(StatusFlag::Zero)),
+            Jump::Jnl => {
+                self.flags.get(Flag::Status(StatusFlag::Overflow))
+                    ^ self.flags.get(Flag::Status(StatusFlag::Sign))
+            }
+            Jump::Jnle => {
+                !((self.flags.get(Flag::Status(StatusFlag::Overflow))
+                    ^ self.flags.get(Flag::Status(StatusFlag::Sign)))
+                    | (self.flags.get(Flag::Status(StatusFlag::Zero))))
+            }
+            Jump::Jnb => !self.flags.get(Flag::Status(StatusFlag::Carry)),
+            Jump::Jnbe => {
+                !(self.flags.get(Flag::Status(StatusFlag::Zero))
+                    | self.flags.get(Flag::Status(StatusFlag::Carry)))
+            }
+            Jump::Jnp => !self.flags.get(Flag::Status(StatusFlag::Parity)),
+            Jump::Jno => !self.flags.get(Flag::Status(StatusFlag::Overflow)),
+            Jump::Jns => !self.flags.get(Flag::Status(StatusFlag::Sign)),
+            Jump::Loop => {
+                let reg = Register::General(GeneralRegister::C, RegisterSubset::All);
+                let prev = self.get_register(&reg);
+                self.set_register(&reg, prev - 1);
+                prev == 1
+            }
+            Jump::Loopz => {
+                let reg = Register::General(GeneralRegister::C, RegisterSubset::All);
+                let prev = self.get_register(&reg);
+                self.set_register(&reg, prev - 1);
+                prev != 1 && self.flags.get(Flag::Status(StatusFlag::Zero))
+            }
+            Jump::Loopnz => {
+                let reg = Register::General(GeneralRegister::C, RegisterSubset::All);
+                let prev = self.get_register(&reg);
+                self.set_register(&reg, prev - 1);
+                prev != 1 && !self.flags.get(Flag::Status(StatusFlag::Zero))
+            }
+            Jump::Jcxz => todo!(),
+        };
+
+        if should_jump {
+            self.program_counter = (self.program_counter as i32 + offset as i32) as u16;
+        }
+        let ip_desc = match old_ip {
+            None => "".to_owned(),
+            Some(old_ip) => {
+                format!(
+                    " ; ip:{}->{}",
+                    Self::display_small(old_ip),
+                    Self::display_small(self.program_counter)
+                )
+            }
+        };
+        // In NASM, the dollar sign is an offset *without* including the bytes of the jump.
+        format!("{} ${}{}{}", jump, if offset > 0 { "+" } else { "" }, offset + 2, ip_desc)
+    }
+
     pub fn get_program_counter(&self) -> u16 {
         self.program_counter
     }
@@ -830,7 +907,7 @@ impl Computer {
         match instruction {
             Instruction::Move(mov) => self.step_mov(mov, old_ip),
             Instruction::Arithmetic(arith) => self.step_arithmetic(arith, old_ip),
-            Instruction::Jump(_, _) => todo!(),
+            Instruction::Jump(jump, offset) => self.step_jump(*jump, *offset, old_ip),
             Instruction::Trivia(_) => format!("{}", instruction),
         }
     }
