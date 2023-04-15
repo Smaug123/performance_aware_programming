@@ -98,7 +98,6 @@ impl Program<Vec<Instruction<i8>>, i8> {
         let mut output = Vec::new();
 
         while let Some(i) = Instruction::consume(&mut bytes) {
-            // println!("{}", i);
             output.push(i);
         }
 

@@ -126,7 +126,6 @@ mod test_computer {
         test_sim(input_bytecode, expected_trace, true)
     }
 
-    /*
     #[test]
     fn test_conditional_jumps() {
         let input_bytecode =
@@ -134,16 +133,17 @@ mod test_computer {
         let expected_trace = include_str!(
             "../../computer_enhance/perfaware/part1/listing_0049_conditional_jumps.txt"
         );
-        test_sim(input_bytecode, expected_trace)
+        test_sim(input_bytecode, expected_trace, true)
     }
 
+    /*
     #[test]
     fn test_challenge_jumps() {
         let input_bytecode =
             include_bytes!("../../computer_enhance/perfaware/part1/listing_0050_challenge_jumps");
         let expected_trace =
             include_str!("../../computer_enhance/perfaware/part1/listing_0050_challenge_jumps.txt");
-        test_sim(input_bytecode, expected_trace)
+        test_sim(input_bytecode, expected_trace, true)
     }
 
     #[test]

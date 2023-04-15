@@ -416,7 +416,7 @@ impl Instruction<i8> {
                 Some(Instruction::Jump(
                     instruction,
                     if next >= 128 {
-                        (255 - next) as i8 - 1
+                        -((255 - next) as i8) - 1
                     } else {
                         next as i8
                     },
