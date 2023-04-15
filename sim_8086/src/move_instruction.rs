@@ -1,11 +1,13 @@
 use std::fmt::Display;
 
+use arbitrary::Arbitrary;
+
 use crate::{
     effective_address::EffectiveAddress,
     register::{ByteRegisterSubset, Register, RegisterSubset, SegmentRegister},
 };
 
-#[derive(Eq, PartialEq, Debug, Hash, Clone)]
+#[derive(Eq, PartialEq, Debug, Hash, Clone, Arbitrary)]
 pub struct RegRegMove {
     pub source: Register,
     pub dest: Register,
@@ -90,9 +92,13 @@ impl RegRegMove {
 
         result
     }
+
+    const fn length(&self) -> u8 {
+        2
+    }
 }
 
-#[derive(Eq, PartialEq, Debug, Hash, Clone)]
+#[derive(Eq, PartialEq, Debug, Hash, Clone, Arbitrary)]
 pub struct RegMemMove {
     pub source: Register,
     pub dest: EffectiveAddress,
@@ -112,9 +118,12 @@ impl RegMemMove {
 
         result
     }
+    fn length(&self) -> u8 {
+        1 + self.dest.length()
+    }
 }
 
-#[derive(Eq, PartialEq, Debug, Hash, Clone)]
+#[derive(Eq, PartialEq, Debug, Hash, Clone, Arbitrary)]
 pub struct MemRegMove {
     pub source: EffectiveAddress,
     pub dest: Register,
@@ -134,9 +143,13 @@ impl MemRegMove {
 
         result
     }
+
+    fn length(&self) -> u8 {
+        1 + self.source.length()
+    }
 }
 
-#[derive(Eq, PartialEq, Debug, Hash, Clone)]
+#[derive(Eq, PartialEq, Debug, Hash, Clone, Arbitrary)]
 pub enum ImmediateToRegister {
     Byte(Register, u8),
     Wide(Register, u16),
@@ -168,6 +181,12 @@ impl ImmediateToRegister {
         }
         result
     }
+    fn length(&self) -> u8 {
+        match self {
+            ImmediateToRegister::Byte(_, _) => 2,
+            ImmediateToRegister::Wide(_, _) => 3,
+        }
+    }
 }
 
 impl Display for ImmediateToRegister {
@@ -183,7 +202,7 @@ impl Display for ImmediateToRegister {
     }
 }
 
-#[derive(Eq, PartialEq, Debug, Hash, Clone)]
+#[derive(Eq, PartialEq, Debug, Hash, Clone, Arbitrary)]
 pub enum ImmediateToMemory {
     Byte(EffectiveAddress, u8),
     Word(EffectiveAddress, u16),
@@ -210,9 +229,15 @@ impl ImmediateToMemory {
 
         result
     }
+    fn length(&self) -> u8 {
+        match self {
+            ImmediateToMemory::Byte(address, _) => 2 + address.length(),
+            ImmediateToMemory::Word(address, _) => 3 + address.length(),
+        }
+    }
 }
 
-#[derive(Eq, PartialEq, Debug, Hash, Clone)]
+#[derive(Eq, PartialEq, Debug, Hash, Clone, Arbitrary)]
 pub struct MemoryToAccumulator {
     pub address: u16,
     pub is_wide: bool,
@@ -227,9 +252,13 @@ impl MemoryToAccumulator {
 
         result
     }
+
+    fn length(&self) -> u8 {
+        3
+    }
 }
 
-#[derive(Eq, PartialEq, Debug, Hash, Clone)]
+#[derive(Eq, PartialEq, Debug, Hash, Clone, Arbitrary)]
 pub struct AccumulatorToMemory {
     pub address: u16,
     pub is_wide: bool,
@@ -244,9 +273,12 @@ impl AccumulatorToMemory {
 
         result
     }
+    fn length(&self) -> u8 {
+        3
+    }
 }
 
-#[derive(Eq, PartialEq, Debug, Hash, Clone)]
+#[derive(Eq, PartialEq, Debug, Hash, Clone, Arbitrary)]
 pub struct SegmentToMemory {
     pub source: SegmentRegister,
     pub dest: EffectiveAddress,
@@ -257,13 +289,16 @@ impl SegmentToMemory {
         let mut result = Vec::with_capacity(4);
         result.push(0b10001100);
 
-        EffectiveAddress::push(&self.dest, self.source as u8, &mut result);
+        self.dest.push(self.source as u8, &mut result);
 
         result
     }
+    fn length(&self) -> u8 {
+        1 + self.dest.length()
+    }
 }
 
-#[derive(Eq, PartialEq, Debug, Hash, Clone)]
+#[derive(Eq, PartialEq, Debug, Hash, Clone, Arbitrary)]
 pub struct MemoryToSegment {
     pub dest: SegmentRegister,
     pub source: EffectiveAddress,
@@ -274,13 +309,17 @@ impl MemoryToSegment {
         let mut result = Vec::with_capacity(4);
         result.push(0b10001110);
 
-        EffectiveAddress::push(&self.source, self.dest as u8, &mut result);
+        self.source.push(self.dest as u8, &mut result);
 
         result
     }
+
+    const fn length(&self) -> u8 {
+        1 + self.source.length()
+    }
 }
 
-#[derive(Eq, PartialEq, Debug, Hash, Clone)]
+#[derive(Eq, PartialEq, Debug, Hash, Clone, Arbitrary)]
 pub struct SegmentToRegister {
     pub source: SegmentRegister,
     pub dest: Register,
@@ -296,9 +335,13 @@ impl SegmentToRegister {
         }
         vec![0b10001100, mode * 64 + sr * 8 + rm]
     }
+
+    const fn length(&self) -> u8 {
+        2
+    }
 }
 
-#[derive(Eq, PartialEq, Debug, Hash, Clone)]
+#[derive(Eq, PartialEq, Debug, Hash, Clone, Arbitrary)]
 pub struct RegisterToSegment {
     pub dest: SegmentRegister,
     pub source: Register,
@@ -314,9 +357,13 @@ impl RegisterToSegment {
         }
         vec![0b10001110, mode * 64 + sr * 8 + rm]
     }
+
+    const fn length(&self) -> u8 {
+        2
+    }
 }
 
-#[derive(Eq, PartialEq, Debug, Hash, Clone)]
+#[derive(Eq, PartialEq, Debug, Hash, Clone, Arbitrary)]
 pub enum MoveInstruction {
     /// Move a value from one register to another
     RegRegMove(RegRegMove),
@@ -399,6 +446,22 @@ impl MoveInstruction {
             MoveInstruction::SegmentToMemory(mov) => mov.to_bytes(),
             MoveInstruction::SegmentToRegister(mov) => mov.to_bytes(),
             MoveInstruction::RegisterToSegment(mov) => mov.to_bytes(),
+        }
+    }
+
+    pub(crate) fn length(&self) -> u8 {
+        match self {
+            MoveInstruction::RegMemMove(mov) => mov.length(),
+            MoveInstruction::MemRegMove(mov) => mov.length(),
+            MoveInstruction::ImmediateToRegister(mov) => mov.length(),
+            MoveInstruction::ImmediateToMemory(mov) => mov.length(),
+            MoveInstruction::MemoryToAccumulator(mov) => mov.length(),
+            MoveInstruction::AccumulatorToMemory(mov) => mov.length(),
+            MoveInstruction::RegRegMove(mov) => mov.length(),
+            MoveInstruction::MemoryToSegment(mov) => mov.length(),
+            MoveInstruction::SegmentToMemory(mov) => mov.length(),
+            MoveInstruction::SegmentToRegister(mov) => mov.length(),
+            MoveInstruction::RegisterToSegment(mov) => mov.length(),
         }
     }
 }

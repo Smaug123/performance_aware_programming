@@ -13,7 +13,7 @@ mod test_computer {
         s
     }
 
-    fn test_sim<T>(input_bytecode: T, expected_trace: &str)
+    fn test_sim<T>(input_bytecode: T, expected_trace: &str, display_ip: bool)
     where
         T: AsRef<[u8]>,
     {
@@ -21,16 +21,40 @@ mod test_computer {
 
         let decoded = Program::of_bytes(input_bytecode.as_ref().iter().cloned());
 
+        let mut instructions = vec![None; input_bytecode.as_ref().len()];
+        let mut counter = 0usize;
+        for instruction in decoded.instructions.iter() {
+            instructions[counter] = Some(instruction);
+            counter += instruction.length() as usize;
+        }
+
+        let end_of_instructions = counter;
         let mut trace: Vec<String> = vec![];
 
-        for instruction in decoded.instructions {
-            trace.push(computer.step(&instruction));
+        loop {
+            let counter = computer.get_program_counter() as usize;
+            if counter >= end_of_instructions {
+                break;
+            }
+            match instructions[counter] {
+                None => {
+                    panic!("landed in middle of instruction")
+                }
+                Some(instruction) => {
+                    trace.push(computer.step(instruction, display_ip));
+                }
+            }
         }
 
         trace.push("".to_owned());
         trace.push("Final registers:".to_owned());
         for line in computer.dump_register_state().lines() {
             trace.push(line.to_string());
+        }
+
+        if display_ip {
+            let ip = computer.get_program_counter();
+            trace.push(format!("ip: {:#06x} ({})", ip, ip));
         }
 
         let flags = computer.dump_flag_state();
@@ -52,7 +76,7 @@ mod test_computer {
             include_bytes!("../../computer_enhance/perfaware/part1/listing_0043_immediate_movs");
         let expected_trace =
             include_str!("../../computer_enhance/perfaware/part1/listing_0043_immediate_movs.txt");
-        test_sim(input_bytecode, expected_trace)
+        test_sim(input_bytecode, expected_trace, false)
     }
 
     #[test]
@@ -61,7 +85,7 @@ mod test_computer {
             include_bytes!("../../computer_enhance/perfaware/part1/listing_0044_register_movs");
         let expected_trace =
             include_str!("../../computer_enhance/perfaware/part1/listing_0044_register_movs.txt");
-        test_sim(input_bytecode, expected_trace)
+        test_sim(input_bytecode, expected_trace, false)
     }
 
     #[test]
@@ -72,7 +96,7 @@ mod test_computer {
         let expected_trace = include_str!(
             "../../computer_enhance/perfaware/part1/listing_0045_challenge_register_movs.txt"
         );
-        test_sim(input_bytecode, expected_trace)
+        test_sim(input_bytecode, expected_trace, false)
     }
 
     #[test]
@@ -81,7 +105,7 @@ mod test_computer {
             include_bytes!("../../computer_enhance/perfaware/part1/listing_0046_add_sub_cmp");
         let expected_trace =
             include_str!("../../computer_enhance/perfaware/part1/listing_0046_add_sub_cmp.txt");
-        test_sim(input_bytecode, expected_trace)
+        test_sim(input_bytecode, expected_trace, false)
     }
 
     #[test]
@@ -90,19 +114,19 @@ mod test_computer {
             include_bytes!("../../computer_enhance/perfaware/part1/listing_0047_challenge_flags");
         let expected_trace =
             include_str!("../../computer_enhance/perfaware/part1/listing_0047_challenge_flags.txt");
-        test_sim(input_bytecode, expected_trace)
+        test_sim(input_bytecode, expected_trace, false)
     }
 
-    /*
     #[test]
     fn test_ip_register() {
         let input_bytecode =
             include_bytes!("../../computer_enhance/perfaware/part1/listing_0048_ip_register");
         let expected_trace =
             include_str!("../../computer_enhance/perfaware/part1/listing_0048_ip_register.txt");
-        test_sim(input_bytecode, expected_trace)
+        test_sim(input_bytecode, expected_trace, true)
     }
 
+    /*
     #[test]
     fn test_conditional_jumps() {
         let input_bytecode =

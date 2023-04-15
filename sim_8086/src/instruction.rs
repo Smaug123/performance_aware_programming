@@ -1,5 +1,7 @@
 use std::fmt::Display;
 
+use arbitrary::Arbitrary;
+
 use crate::{
     arithmetic_instruction::{
         ArithmeticInstruction, ArithmeticInstructionSelect, ArithmeticOperation, MemRegArithmetic,
@@ -16,7 +18,7 @@ use crate::{
     trivia_instruction::TriviaInstruction,
 };
 
-#[derive(Eq, PartialEq, Debug, Hash, Clone)]
+#[derive(Eq, PartialEq, Debug, Hash, Clone, Arbitrary)]
 pub enum Instruction<InstructionOffset> {
     Move(MoveInstruction),
     /// Perform arithmetic
@@ -116,6 +118,8 @@ impl Instruction<i8> {
 
                 result.push(if *offset >= 0 {
                     *offset as u8
+                } else if *offset == i8::MIN {
+                    0
                 } else {
                     255 - (-*offset) as u8 + 1
                 });
@@ -423,5 +427,63 @@ impl Instruction<i8> {
         } else {
             None
         }
+    }
+}
+
+impl<A> Instruction<A> {
+    pub fn length(&self) -> u8 {
+        match self {
+            Instruction::Move(m) => m.length(),
+            Instruction::Arithmetic(a) => a.length(),
+            Instruction::Jump(_, _) => 2,
+            Instruction::Trivia(_) => 0,
+        }
+    }
+}
+
+#[cfg(test)]
+mod test_instruction {
+    use crate::{
+        arithmetic_instruction::ArithmeticInstructionSelect,
+        instruction::Instruction,
+        move_instruction::{ImmediateToRegister, MoveInstruction},
+    };
+    use arbitrary::Arbitrary;
+
+    fn invalid<A>(i: &Instruction<A>) -> bool {
+        match i {
+            Instruction::Move(MoveInstruction::RegisterToSegment(mov)) => !mov.source.is_wide(),
+            Instruction::Move(MoveInstruction::RegRegMove(mov)) => {
+                mov.dest.is_wide() != mov.source.is_wide()
+            }
+            Instruction::Move(MoveInstruction::SegmentToRegister(mov)) => !mov.dest.is_wide(),
+            Instruction::Move(MoveInstruction::ImmediateToRegister(mov)) => match mov {
+                ImmediateToRegister::Byte(r, _) => r.is_wide(),
+                ImmediateToRegister::Wide(r, _) => !r.is_wide(),
+            },
+            Instruction::Arithmetic(i) => match &i.instruction {
+                ArithmeticInstructionSelect::RegisterToRegister(data) => {
+                    data.source.is_wide() != data.dest.is_wide()
+                }
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+
+    #[test]
+    fn test_length() {
+        fn prop(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<()> {
+            let i: Instruction<i8> = Instruction::arbitrary(u)?;
+            if !invalid(&i) {
+                let short_cut = i.length() as usize;
+                let longhand = i.to_bytes().len();
+                if short_cut != longhand {
+                    panic!("{}\n{:?}", i, i);
+                }
+            }
+            Ok(())
+        }
+        arbtest::builder().budget_ms(1000).run(prop);
     }
 }

@@ -1,7 +1,8 @@
+use arbitrary::Arbitrary;
 use const_panic::concat_panic;
 use std::fmt::{Display, Write};
 
-#[derive(Eq, PartialEq, Debug, Hash, Clone)]
+#[derive(Eq, PartialEq, Debug, Hash, Clone, Arbitrary)]
 pub enum GeneralRegister {
     A,
     B,
@@ -41,7 +42,7 @@ impl Display for GeneralRegister {
     }
 }
 
-#[derive(Eq, PartialEq, Debug, Hash, Clone)]
+#[derive(Eq, PartialEq, Debug, Hash, Clone, Arbitrary)]
 pub enum SpecialRegister {
     StackPointer,
     BasePointer,
@@ -82,13 +83,13 @@ impl Display for SpecialRegister {
     }
 }
 
-#[derive(Eq, PartialEq, Debug, Hash, Clone)]
+#[derive(Eq, PartialEq, Debug, Hash, Clone, Arbitrary)]
 pub enum ByteRegisterSubset {
     High,
     Low,
 }
 
-#[derive(Eq, PartialEq, Debug, Hash, Clone)]
+#[derive(Eq, PartialEq, Debug, Hash, Clone, Arbitrary)]
 pub enum RegisterSubset {
     All,
     Subset(ByteRegisterSubset),
@@ -104,7 +105,7 @@ impl Display for RegisterSubset {
     }
 }
 
-#[derive(Eq, PartialEq, Debug, Hash, Clone, Copy)]
+#[derive(Eq, PartialEq, Debug, Hash, Clone, Copy, Arbitrary)]
 pub enum SegmentRegister {
     Code = 1,
     Data = 3,
@@ -135,7 +136,7 @@ impl SegmentRegister {
     }
 }
 
-#[derive(Eq, PartialEq, Debug, Hash, Clone)]
+#[derive(Eq, PartialEq, Debug, Hash, Clone, Arbitrary)]
 pub enum Register {
     General(GeneralRegister, RegisterSubset),
     Special(SpecialRegister),
@@ -192,7 +193,7 @@ impl Register {
     }
 }
 
-#[derive(Eq, PartialEq, Debug, Hash, Clone)]
+#[derive(Eq, PartialEq, Debug, Hash, Clone, Arbitrary)]
 pub enum SourceDest {
     Source,
     Dest,
@@ -207,7 +208,7 @@ impl Display for SourceDest {
     }
 }
 
-#[derive(Eq, PartialEq, Debug, Hash, Clone)]
+#[derive(Eq, PartialEq, Debug, Hash, Clone, Arbitrary)]
 pub enum Base {
     Bx,
     Bp,

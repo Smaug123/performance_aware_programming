@@ -1,10 +1,11 @@
 use std::fmt::Display;
 
+use arbitrary::Arbitrary;
 use const_panic::concat_panic;
 
 use crate::{effective_address::EffectiveAddress, register::Register};
 
-#[derive(Eq, PartialEq, Debug, Hash, Clone)]
+#[derive(Eq, PartialEq, Debug, Hash, Clone, Arbitrary)]
 pub enum ArithmeticInstructionSelect {
     RegisterToRegister(RegRegArithmetic),
     RegisterToMemory(RegMemArithmetic),
@@ -18,7 +19,7 @@ pub enum ArithmeticInstructionSelect {
     ImmediateToAccWord(u16),
 }
 
-#[derive(Eq, PartialEq, Debug, Hash, Clone)]
+#[derive(Eq, PartialEq, Debug, Hash, Clone, Arbitrary)]
 pub struct ArithmeticInstruction {
     pub op: ArithmeticOperation,
     pub instruction: ArithmeticInstructionSelect,
@@ -154,9 +155,29 @@ impl ArithmeticInstruction {
 
         result
     }
+
+    pub(crate) fn length(&self) -> u8 {
+        match &self.instruction {
+            ArithmeticInstructionSelect::RegisterToRegister(_) => 2,
+            ArithmeticInstructionSelect::RegisterToMemory(instr) => 1 + instr.dest.length(),
+            ArithmeticInstructionSelect::MemoryToRegister(instr) => 1 + instr.source.length(),
+            ArithmeticInstructionSelect::ImmediateToRegisterByte(_, _, _) => 3,
+            ArithmeticInstructionSelect::ImmediateToRegisterWord(_, _, signed) => {
+                3 + if *signed { 0 } else { 1 }
+            }
+            ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryByte(dest, _, _) => {
+                2 + dest.length()
+            }
+            ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryWord(dest, _) => {
+                3 + dest.length()
+            }
+            ArithmeticInstructionSelect::ImmediateToAccByte(_) => 2,
+            ArithmeticInstructionSelect::ImmediateToAccWord(_) => 3,
+        }
+    }
 }
 
-#[derive(Eq, PartialEq, Debug, Clone, Copy, Hash)]
+#[derive(Eq, PartialEq, Debug, Clone, Copy, Hash, Arbitrary)]
 pub enum ArithmeticOperation {
     Add = 0,
     Or = 1,
@@ -199,19 +220,19 @@ impl ArithmeticOperation {
     }
 }
 
-#[derive(Eq, PartialEq, Debug, Hash, Clone)]
+#[derive(Eq, PartialEq, Debug, Hash, Clone, Arbitrary)]
 pub struct RegRegArithmetic {
     pub source: Register,
     pub dest: Register,
 }
 
-#[derive(Eq, PartialEq, Debug, Hash, Clone)]
+#[derive(Eq, PartialEq, Debug, Hash, Clone, Arbitrary)]
 pub struct RegMemArithmetic {
     pub source: Register,
     pub dest: EffectiveAddress,
 }
 
-#[derive(Eq, PartialEq, Debug, Hash, Clone)]
+#[derive(Eq, PartialEq, Debug, Hash, Clone, Arbitrary)]
 pub struct MemRegArithmetic {
     pub dest: Register,
     pub source: EffectiveAddress,
