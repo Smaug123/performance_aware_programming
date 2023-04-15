@@ -33,6 +33,11 @@ mod test_computer {
             trace.push(line.to_string());
         }
 
+        let flags = computer.dump_flag_state();
+        if !flags.is_empty() {
+            trace.push(format!("   flags: {}", flags));
+        }
+
         trace.push("".to_owned());
 
         assert_eq!(
@@ -70,7 +75,6 @@ mod test_computer {
         test_sim(input_bytecode, expected_trace)
     }
 
-    /*
     #[test]
     fn test_add_sub_cmp() {
         let input_bytecode =
@@ -89,6 +93,7 @@ mod test_computer {
         test_sim(input_bytecode, expected_trace)
     }
 
+    /*
     #[test]
     fn test_ip_register() {
         let input_bytecode =

@@ -947,4 +947,21 @@ mod test_assembly {
             )))
         )
     }
+
+    #[test]
+    fn add_immediate_neg_wide() {
+        let (remaining, parsed) = instruction("add cx, -90").unwrap();
+        assert_eq!(remaining, "");
+        assert_eq!(
+            parsed,
+            Instruction::Arithmetic(ArithmeticInstruction {
+                op: ArithmeticOperation::Add,
+                instruction: ArithmeticInstructionSelect::ImmediateToRegisterByte(
+                    Register::General(GeneralRegister::C, RegisterSubset::All),
+                    u8::MAX - 90 + 1,
+                    true
+                )
+            })
+        )
+    }
 }

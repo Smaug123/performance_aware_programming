@@ -1,4 +1,9 @@
+use std::fmt::Display;
+
 use crate::{
+    arithmetic_instruction::{
+        ArithmeticInstruction, ArithmeticInstructionSelect, ArithmeticOperation,
+    },
     effective_address::{EffectiveAddress, WithOffset},
     instruction::Instruction,
     move_instruction::{ImmediateToMemory, ImmediateToRegister, MoveInstruction},
@@ -23,10 +28,119 @@ pub struct Registers {
     ds: u16,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ControlFlag {
+    Trap,
+    Direction,
+    InterruptEnable,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StatusFlag {
+    Overflow,
+    Sign,
+    Zero,
+    AuxiliaryCarry,
+    Parity,
+    Carry,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Flag {
+    Control(ControlFlag),
+    Status(StatusFlag),
+}
+
+impl Flag {
+    const fn to_position(self) -> u8 {
+        match self {
+            Flag::Control(ControlFlag::Direction) => 0,
+            Flag::Control(ControlFlag::InterruptEnable) => 1,
+            Flag::Control(ControlFlag::Trap) => 2,
+            Flag::Status(StatusFlag::AuxiliaryCarry) => 3,
+            Flag::Status(StatusFlag::Carry) => 4,
+            Flag::Status(StatusFlag::Overflow) => 5,
+            Flag::Status(StatusFlag::Parity) => 6,
+            Flag::Status(StatusFlag::Sign) => 7,
+            Flag::Status(StatusFlag::Zero) => 8,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub struct Flags {
+    fields: u16,
+}
+
+impl Display for Flags {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let carry = if self.get(Flag::Status(StatusFlag::Carry)) {
+            "C"
+        } else {
+            ""
+        };
+        let parity = if self.get(Flag::Status(StatusFlag::Parity)) {
+            "P"
+        } else {
+            ""
+        };
+        let auxiliary_carry = if self.get(Flag::Status(StatusFlag::AuxiliaryCarry)) {
+            "A"
+        } else {
+            ""
+        };
+        let sign = if self.get(Flag::Status(StatusFlag::Sign)) {
+            "S"
+        } else {
+            ""
+        };
+        let of = if self.get(Flag::Status(StatusFlag::Overflow)) {
+            "O"
+        } else {
+            ""
+        };
+        let zero = if self.get(Flag::Status(StatusFlag::Zero)) {
+            "Z"
+        } else {
+            ""
+        };
+        f.write_fmt(format_args!(
+            "{carry}{parity}{auxiliary_carry}{sign}{of}{zero}"
+        ))
+    }
+}
+
+impl Flags {
+    const fn nth_flag(v: u16, n: u8) -> bool {
+        v & (1 << n) > 0
+    }
+
+    const fn get(self, f: Flag) -> bool {
+        let all_flags = self.fields;
+        Self::nth_flag(all_flags, f.to_position())
+    }
+
+    fn set(&mut self, f: Flag, v: bool) {
+        if v {
+            self.fields |= 1 << f.to_position()
+        } else {
+            self.fields &= u16::MAX - (1 << f.to_position())
+        }
+    }
+}
+
 pub struct Computer {
     #[allow(dead_code)]
     memory: [u8; 65536],
     registers: Registers,
+    flags: Flags,
+}
+
+struct ResultFlags {
+    auxiliary_carry: bool,
+    overflow: bool,
+    should_write: bool,
+    carry: bool,
 }
 
 impl Computer {
@@ -48,7 +162,16 @@ impl Computer {
                 es: 0,
                 ds: 0,
             },
+            flags: Flags { fields: 0 },
         }
+    }
+
+    fn set_flag(&mut self, f: Flag, v: bool) {
+        self.flags.set(f, v)
+    }
+
+    pub fn dump_flag_state(&self) -> String {
+        format!("{}", self.flags)
     }
 
     /// If the input register is General(_, Subset(_)), the resulting u16 is at most 255.
@@ -196,7 +319,6 @@ impl Computer {
             Register::Special(SpecialRegister::DestIndex) => self.registers.di = value,
         }
         let is_now = self.get_register(&register_for_print);
-        // TODO: this needs to print out "al: 0x22 -> blah" instead of "ax: 0x2222 -> blah" if short
         format!(
             "{}:{}->{}",
             register_for_print,
@@ -445,11 +567,234 @@ impl Computer {
         format!("{} ; {}", preamble, description)
     }
 
+    /// Returns true if the operation overflowed, and true if the value is supposed
+    /// to be written to the destination (so `cmp` returns false), and true if there
+    /// was a carry out of the low-order nibble.
+    fn apply(
+        op: ArithmeticOperation,
+        to_arg: u16,
+        incoming_arg_raw: u16,
+        is_byte_extended: bool,
+    ) -> (u16, ResultFlags) {
+        // If is_byte_extended, the answer is simply "if n>=128, then treat as 256-n".
+        // But the flags behave as though it were byte arithmetic.
+        let incoming_arg = if is_byte_extended && incoming_arg_raw >= 128 {
+            u16::MAX - (255 - incoming_arg_raw)
+        } else {
+            incoming_arg_raw
+        };
+        match op {
+            ArithmeticOperation::Add => {
+                let result = to_arg as u32 + incoming_arg as u32;
+                let result_flags = ResultFlags {
+                    overflow: (to_arg >= 1 << 15 && incoming_arg >= 1 << 15 && result < 1 << 15)
+                        || (to_arg < 1 << 15 && incoming_arg < 1 << 15 && result > 1 << 15),
+                    auxiliary_carry: (to_arg % 16) + (incoming_arg_raw % 16) >= 16,
+                    should_write: true,
+                    carry: result > u16::MAX as u32,
+                };
+                ((result % (u16::MAX as u32 + 1)) as u16, result_flags)
+            }
+            ArithmeticOperation::Or => (
+                to_arg | incoming_arg,
+                ResultFlags {
+                    overflow: false,
+                    should_write: true,
+                    carry: false,
+                    auxiliary_carry: false,
+                },
+            ),
+            ArithmeticOperation::AddWithCarry => todo!(),
+            ArithmeticOperation::SubWithBorrow => todo!(),
+            ArithmeticOperation::And => (
+                to_arg & incoming_arg,
+                ResultFlags {
+                    overflow: false,
+                    should_write: true,
+                    auxiliary_carry: false,
+                    carry: true,
+                },
+            ),
+            ArithmeticOperation::Sub => {
+                let auxiliary_carry = to_arg % 16 < incoming_arg_raw % 16;
+                if to_arg < incoming_arg {
+                    let result = u16::MAX - (incoming_arg - to_arg);
+                    (
+                        result,
+                        ResultFlags {
+                            should_write: true,
+                            overflow: (result < 1 << 15 && to_arg >= 1 << 15),
+                            auxiliary_carry,
+                            carry: true,
+                        },
+                    )
+                } else {
+                    // We might be wrapping around 0, so check for overflow separately.
+                    let result = to_arg - incoming_arg;
+                    (
+                        result,
+                        ResultFlags {
+                            should_write: true,
+                            overflow: (result < 1 << 15 && to_arg >= 1 << 15),
+                            auxiliary_carry,
+                            carry: false,
+                        },
+                    )
+                }
+            }
+            ArithmeticOperation::Xor => (
+                to_arg ^ incoming_arg,
+                ResultFlags {
+                    overflow: false,
+                    should_write: true,
+                    auxiliary_carry: false,
+                    carry: false,
+                },
+            ),
+            ArithmeticOperation::Cmp => {
+                // CPAS can all be set by Cmp
+                let auxiliary_carry = to_arg % 16 < incoming_arg_raw % 16;
+                if to_arg < incoming_arg {
+                    let result = u16::MAX - (incoming_arg - to_arg);
+                    (
+                        result,
+                        ResultFlags {
+                            should_write: false,
+                            auxiliary_carry,
+                            overflow: (result < 1 << 15 && to_arg >= 1 << 15),
+                            carry: true,
+                        },
+                    )
+                } else {
+                    let result = to_arg - incoming_arg;
+                    (
+                        result,
+                        ResultFlags {
+                            should_write: false,
+                            auxiliary_carry,
+                            overflow: (result < 1 << 15 && to_arg >= 1 << 15),
+                            carry: false,
+                        },
+                    )
+                }
+            }
+        }
+    }
+
+    /// true if v has an odd number of bits in
+    const fn is_odd_parity(v: u16) -> bool {
+        let mut parity = 0u8;
+        let mut v = v;
+        while v > 0 {
+            if v % 2 == 1 {
+                parity += 1;
+            }
+            v >>= 1;
+        }
+        parity % 2 == 1
+    }
+
+    fn step_arithmetic(&mut self, instruction: &ArithmeticInstruction) -> String {
+        let old_flags = self.flags;
+        let (source, old_value, new_value, flags) = match &instruction.instruction {
+            ArithmeticInstructionSelect::RegisterToRegister(instr) => {
+                let current_value = self.get_register(&instr.dest);
+                let incoming_value = self.get_register(&instr.source);
+                let (new_value, flags) =
+                    Self::apply(instruction.op, current_value, incoming_value, false);
+                if flags.should_write {
+                    self.set_register(&instr.dest, new_value);
+                }
+                (format!("{}", instr.dest), current_value, new_value, flags)
+            }
+            ArithmeticInstructionSelect::RegisterToMemory(_) => todo!(),
+            ArithmeticInstructionSelect::MemoryToRegister(_) => todo!(),
+            ArithmeticInstructionSelect::ImmediateToRegisterByte(register, value, is_extended) => {
+                let current_value = self.get_register(register);
+                let (new_value, flags) = if *is_extended {
+                    Self::apply(instruction.op, current_value, *value as u16, *is_extended)
+                    // Self::apply(instruction.op, current_value, *value as u16)
+                } else {
+                    todo!()
+                };
+                if flags.should_write {
+                    self.set_register(register, new_value);
+                }
+                (format!("{}", register), current_value, new_value, flags)
+            }
+            ArithmeticInstructionSelect::ImmediateToRegisterWord(register, value, is_extended) => {
+                let current_value = self.get_register(register);
+                let (new_value, flags) =
+                    Self::apply(instruction.op, current_value, *value, *is_extended);
+                if flags.should_write {
+                    self.set_register(register, new_value);
+                }
+                (format!("{}", register), current_value, new_value, flags)
+            }
+            ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryByte(_, _, _) => todo!(),
+            ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryWord(_, _) => todo!(),
+            ArithmeticInstructionSelect::ImmediateToAccByte(value) => {
+                let reg = Register::General(
+                    GeneralRegister::A,
+                    RegisterSubset::Subset(ByteRegisterSubset::Low),
+                );
+                let current_value = self.get_register(&reg);
+                let (new_value, flags) =
+                    Self::apply(instruction.op, current_value, *value as u16, false);
+                if flags.should_write {
+                    self.set_register(&reg, new_value);
+                }
+                (format!("{}", reg), current_value, new_value, flags)
+            }
+            ArithmeticInstructionSelect::ImmediateToAccWord(value) => {
+                let reg = Register::General(GeneralRegister::A, RegisterSubset::All);
+                let current_value = self.get_register(&reg);
+                let (new_value, flags) = Self::apply(instruction.op, current_value, *value, false);
+                if flags.should_write {
+                    self.set_register(&reg, new_value);
+                }
+                (format!("{}", reg), current_value, new_value, flags)
+            }
+        };
+
+        self.set_flag(Flag::Status(StatusFlag::Zero), new_value == 0);
+        self.set_flag(Flag::Status(StatusFlag::Overflow), flags.overflow);
+        // TODO: what if this was a byte instruction instead
+        self.set_flag(Flag::Status(StatusFlag::Sign), new_value & 0x8000 > 0);
+        self.set_flag(
+            Flag::Status(StatusFlag::AuxiliaryCarry),
+            flags.auxiliary_carry,
+        );
+        self.set_flag(Flag::Status(StatusFlag::Carry), flags.carry);
+        if flags.should_write {
+            self.set_flag(
+                Flag::Status(StatusFlag::Parity),
+                !Self::is_odd_parity(new_value % 256),
+            )
+        }
+        let flags_desc = if old_flags == self.flags {
+            "".to_owned()
+        } else {
+            format!(" flags:{}->{}", old_flags, self.flags)
+        };
+        let result_desc = if flags.should_write {
+            format!(
+                " {}:{}->{}",
+                source,
+                Self::display_small(old_value),
+                Self::display_small(new_value)
+            )
+        } else {
+            "".to_owned()
+        };
+        format!("{instruction} ;{result_desc}{flags_desc}")
+    }
+
     /// Returns a string representation of what happened.
     pub fn step(&mut self, instruction: &Instruction<i8>) -> String {
         match instruction {
             Instruction::Move(mov) => self.step_mov(mov),
-            Instruction::Arithmetic(_) => todo!(),
+            Instruction::Arithmetic(arith) => self.step_arithmetic(arith),
             Instruction::Jump(_, _) => todo!(),
             Instruction::Trivia(_) => format!("{}", instruction),
         }
@@ -464,12 +809,14 @@ impl Computer {
             GeneralRegister::D,
         ] {
             let value = self.get_register(&Register::General(r.clone(), RegisterSubset::All));
-            result.push_str(&format!(
-                "{}x: {} ({})\n",
-                r,
-                Self::display_big(value),
-                value
-            ))
+            if value != 0 {
+                result.push_str(&format!(
+                    "{}x: {} ({})\n",
+                    r,
+                    Self::display_big(value),
+                    value
+                ))
+            }
         }
 
         for r in [
@@ -479,12 +826,14 @@ impl Computer {
             SpecialRegister::DestIndex,
         ] {
             let value = self.get_register(&Register::Special(r.clone()));
-            result.push_str(&format!(
-                "{}: {} ({})\n",
-                r,
-                Self::display_big(value),
-                value
-            ))
+            if value != 0 {
+                result.push_str(&format!(
+                    "{}: {} ({})\n",
+                    r,
+                    Self::display_big(value),
+                    value
+                ))
+            }
         }
 
         for r in [
@@ -505,5 +854,19 @@ impl Computer {
         }
 
         result
+    }
+}
+
+#[cfg(test)]
+mod test_computer {
+    use crate::computer::Computer;
+
+    #[test]
+    fn test_parity() {
+        assert!(!Computer::is_odd_parity(0));
+        assert!(Computer::is_odd_parity(1));
+        assert!(Computer::is_odd_parity(2));
+        assert!(!Computer::is_odd_parity(3));
+        assert!(!Computer::is_odd_parity(0x7ea));
     }
 }
