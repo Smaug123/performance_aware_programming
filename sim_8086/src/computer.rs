@@ -1,4 +1,4 @@
-use std::{fmt::Display, thread::current};
+use std::fmt::Display;
 
 use crate::{
     arithmetic_instruction::{
@@ -707,8 +707,8 @@ impl Computer {
                 }
                 (format!("{}", instr.dest), current_value, new_value, flags)
             }
-            ArithmeticInstructionSelect::RegisterToMemory(instr) => todo!(),
-            ArithmeticInstructionSelect::MemoryToRegister(instr) => todo!(),
+            ArithmeticInstructionSelect::RegisterToMemory(_) => todo!(),
+            ArithmeticInstructionSelect::MemoryToRegister(_) => todo!(),
             ArithmeticInstructionSelect::ImmediateToRegisterByte(register, value, is_extended) => {
                 let current_value = self.get_register(register);
                 let (new_value, flags) = if *is_extended {
