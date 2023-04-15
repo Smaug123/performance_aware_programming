@@ -1,8 +1,10 @@
 use std::fmt::Display;
 
+use arbitrary::Arbitrary;
+
 use crate::register::{Base, SourceDest};
 
-#[derive(Eq, PartialEq, Debug, Hash, Clone)]
+#[derive(Eq, PartialEq, Debug, Hash, Clone, Arbitrary)]
 pub enum WithOffset<T> {
     Basic(T),
     WithU8(T, u8),
@@ -22,7 +24,7 @@ where
     }
 }
 
-#[derive(Eq, PartialEq, Debug, Hash, Clone)]
+#[derive(Eq, PartialEq, Debug, Hash, Clone, Arbitrary)]
 pub enum EffectiveAddress {
     /// An offset from the contents of the (BX/BP) register plus the contents of the (SI/DI) register.
     Sum(WithOffset<(Base, SourceDest)>),
@@ -256,6 +258,23 @@ impl EffectiveAddress {
                 result.push((offset % 256) as u8);
                 result.push((offset / 256) as u8);
             }
+        }
+    }
+
+    pub(crate) const fn length(&self) -> u8 {
+        match self {
+            EffectiveAddress::Sum(WithOffset::Basic(_)) => 1,
+            EffectiveAddress::Sum(WithOffset::WithU8(_, _)) => 2,
+            EffectiveAddress::Sum(WithOffset::WithU16(_, _)) => 3,
+            EffectiveAddress::SpecifiedIn(WithOffset::Basic(_)) => 1,
+            EffectiveAddress::SpecifiedIn(WithOffset::WithU8(_, _)) => 2,
+            EffectiveAddress::SpecifiedIn(WithOffset::WithU16(_, _)) => 3,
+            EffectiveAddress::Bx(WithOffset::Basic(())) => 1,
+            EffectiveAddress::Bx(WithOffset::WithU8((), _)) => 2,
+            EffectiveAddress::Bx(WithOffset::WithU16((), _)) => 3,
+            EffectiveAddress::Direct(_) => 3,
+            EffectiveAddress::BasePointer(_) => 2,
+            EffectiveAddress::BasePointerWide(_) => 3,
         }
     }
 }

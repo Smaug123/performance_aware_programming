@@ -134,6 +134,7 @@ pub struct Computer {
     memory: [u8; 65536],
     registers: Registers,
     flags: Flags,
+    program_counter: u16,
 }
 
 struct ResultFlags {
@@ -163,6 +164,7 @@ impl Computer {
                 ds: 0,
             },
             flags: Flags { fields: 0 },
+            program_counter: 0,
         }
     }
 
@@ -473,7 +475,7 @@ impl Computer {
         }
     }
 
-    fn step_mov(&mut self, instruction: &MoveInstruction) -> String {
+    fn step_mov(&mut self, instruction: &MoveInstruction, old_ip: Option<u16>) -> String {
         let preamble = format!("{}", instruction);
         let description = match &instruction {
             MoveInstruction::RegRegMove(mov) => {
@@ -564,7 +566,15 @@ impl Computer {
                 self.set_segment(mov.dest, value)
             }
         };
-        format!("{} ; {}", preamble, description)
+        let ip_desc = match old_ip {
+            None => "".to_owned(),
+            Some(old_ip) => format!(
+                " ip:{}->{}",
+                Self::display_small(old_ip),
+                Self::display_small(self.program_counter)
+            ),
+        };
+        format!("{} ; {}{}", preamble, description, ip_desc)
     }
 
     /// Returns true if the operation overflowed, and true if the value is supposed
@@ -618,7 +628,7 @@ impl Computer {
             ArithmeticOperation::Sub => {
                 let auxiliary_carry = to_arg % 16 < incoming_arg_raw % 16;
                 if to_arg < incoming_arg {
-                    let result = u16::MAX - (incoming_arg - to_arg);
+                    let result = u16::MAX - (incoming_arg - to_arg) + 1;
                     (
                         result,
                         ResultFlags {
@@ -694,7 +704,11 @@ impl Computer {
         parity % 2 == 1
     }
 
-    fn step_arithmetic(&mut self, instruction: &ArithmeticInstruction) -> String {
+    fn step_arithmetic(
+        &mut self,
+        instruction: &ArithmeticInstruction,
+        old_ip: Option<u16>,
+    ) -> String {
         let old_flags = self.flags;
         let (source, old_value, new_value, flags) = match &instruction.instruction {
             ArithmeticInstructionSelect::RegisterToRegister(instr) => {
@@ -777,6 +791,16 @@ impl Computer {
         } else {
             format!(" flags:{}->{}", old_flags, self.flags)
         };
+        let ip_desc = match old_ip {
+            None => "".to_owned(),
+            Some(old_ip) => {
+                format!(
+                    " ip:{}->{}",
+                    Self::display_small(old_ip),
+                    Self::display_small(self.program_counter)
+                )
+            }
+        };
         let result_desc = if flags.should_write {
             format!(
                 " {}:{}->{}",
@@ -787,14 +811,25 @@ impl Computer {
         } else {
             "".to_owned()
         };
-        format!("{instruction} ;{result_desc}{flags_desc}")
+        format!("{instruction} ;{result_desc}{ip_desc}{flags_desc}")
+    }
+
+    pub fn get_program_counter(&self) -> u16 {
+        self.program_counter
     }
 
     /// Returns a string representation of what happened.
-    pub fn step(&mut self, instruction: &Instruction<i8>) -> String {
+    pub fn step(&mut self, instruction: &Instruction<i8>, display_ip: bool) -> String {
+        let advance = instruction.length();
+        let old_ip = if display_ip {
+            Some(self.program_counter)
+        } else {
+            None
+        };
+        self.program_counter += advance as u16;
         match instruction {
-            Instruction::Move(mov) => self.step_mov(mov),
-            Instruction::Arithmetic(arith) => self.step_arithmetic(arith),
+            Instruction::Move(mov) => self.step_mov(mov, old_ip),
+            Instruction::Arithmetic(arith) => self.step_arithmetic(arith, old_ip),
             Instruction::Jump(_, _) => todo!(),
             Instruction::Trivia(_) => format!("{}", instruction),
         }
