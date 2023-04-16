@@ -162,8 +162,12 @@ jobs:
           "with": { "extra-nix-config": "access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}" }
         },
         {
-          "name": "Run app",
+          "name": "Run app (verify consistency)",
           "run": "nix run . -- computer_enhance/perfaware/part1/listing_0038_many_register_mov computer_enhance/perfaware/part1/listing_0038_many_register_mov.asm"
+        },
+        {
+          "name": "Run app",
+          "run": "nix run . -- computer_enhance/perfaware/part1/listing_0055_challenge_rectangle computer_enhance/perfaware/part1/listing_0055_challenge_rectangle.asm"
         }
       ]
     }

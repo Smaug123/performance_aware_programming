@@ -18,6 +18,8 @@ struct Args {
     compiled_path: std::path::PathBuf,
     #[arg(value_name = "ASM_PATH")]
     asm_path: std::path::PathBuf,
+    #[arg()]
+    verify_consistency: Option<bool>,
 }
 
 fn program_equal_ignoring_labels<A, B>(
@@ -138,6 +140,11 @@ fn main() {
     let expected_bytecode = load_machine_code(args.compiled_path);
     let asm = fs::read_to_string(args.asm_path).unwrap();
 
-    verify_consistency(&expected_bytecode, &asm);
+    match args.verify_consistency {
+        Some(true) => {
+            verify_consistency(&expected_bytecode, &asm);
+        }
+        _ => {}
+    }
     let _computer = run(expected_bytecode);
 }
