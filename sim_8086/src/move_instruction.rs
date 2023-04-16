@@ -391,9 +391,16 @@ impl Display for MoveInstruction {
             MoveInstruction::RegRegMove(mov) => {
                 f.write_fmt(format_args!("mov {}, {}", mov.dest, mov.source))
             }
-            MoveInstruction::RegMemMove(mov) => {
-                f.write_fmt(format_args!("mov {}, {}", mov.dest, mov.source))
-            }
+            MoveInstruction::RegMemMove(mov) => f.write_fmt(format_args!(
+                "mov {}{}, {}",
+                if mov.source.is_wide() {
+                    "word "
+                } else {
+                    "byte "
+                },
+                mov.dest,
+                mov.source
+            )),
             MoveInstruction::MemRegMove(mov) => {
                 f.write_fmt(format_args!("mov {}, {}", mov.dest, mov.source))
             }
@@ -401,10 +408,10 @@ impl Display for MoveInstruction {
                 f.write_fmt(format_args!("mov {}", instruction))
             }
             MoveInstruction::ImmediateToMemory(ImmediateToMemory::Byte(address, value)) => {
-                f.write_fmt(format_args!("mov {}, {}", address, value))
+                f.write_fmt(format_args!("mov byte {}, {}", address, value))
             }
             MoveInstruction::ImmediateToMemory(ImmediateToMemory::Word(address, value)) => {
-                f.write_fmt(format_args!("mov {}, {}", address, value))
+                f.write_fmt(format_args!("mov word {}, {}", address, value))
             }
             MoveInstruction::MemoryToAccumulator(instruction) => f.write_fmt(format_args!(
                 "mov a{}, [{}]",

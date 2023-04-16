@@ -322,12 +322,16 @@ impl Computer {
             Register::Special(SpecialRegister::DestIndex) => self.registers.di = value,
         }
         let is_now = self.get_register(&register_for_print);
-        format!(
-            "{}:{}->{}",
-            register_for_print,
-            Self::display_small(was),
-            Self::display_small(is_now)
-        )
+        if was != is_now {
+            format!(
+                "{}:{}->{}",
+                register_for_print,
+                Self::display_small(was),
+                Self::display_small(is_now)
+            )
+        } else {
+            "".to_owned()
+        }
     }
 
     fn set_segment(&mut self, r: SegmentRegister, value: u16) -> String {
@@ -352,18 +356,18 @@ impl Computer {
     }
 
     fn get_memory_word(&self, index: usize) -> u16 {
-        self.memory[index] as u16 * 256 + self.memory[index + 1] as u16
+        self.memory[index] as u16 + self.memory[index + 1] as u16 * 256
     }
 
     fn set_memory_byte(&mut self, index: usize, value: u8) -> String {
         self.memory[index] = value;
-        "todo".to_owned()
+        "".to_owned()
     }
 
     fn set_memory_word(&mut self, index: usize, value: u16) -> String {
         self.memory[index] = (value % 256) as u8;
         self.memory[index + 1] = (value / 256) as u8;
-        "todo".to_owned()
+        "".to_owned()
     }
 
     fn resolve_eaddr(&self, a: &EffectiveAddress) -> usize {
@@ -507,7 +511,7 @@ impl Computer {
             MoveInstruction::ImmediateToMemory(mov) => match mov {
                 ImmediateToMemory::Byte(addr, value) => {
                     let dest = self.resolve_eaddr(addr);
-                    self.set_memory_byte(dest, *value)
+                    self.set_memory_word(dest, *value as u16)
                 }
                 ImmediateToMemory::Word(addr, value) => {
                     let dest = self.resolve_eaddr(addr);
@@ -570,7 +574,8 @@ impl Computer {
         let ip_desc = match old_ip {
             None => "".to_owned(),
             Some(old_ip) => format!(
-                " ip:{}->{}",
+                "{}ip:{}->{}",
+                if description.is_empty() { "" } else { " " },
                 Self::display_small(old_ip),
                 Self::display_small(self.program_counter)
             ),
@@ -723,7 +728,20 @@ impl Computer {
                 (format!("{}", instr.dest), current_value, new_value, flags)
             }
             ArithmeticInstructionSelect::RegisterToMemory(_) => todo!(),
-            ArithmeticInstructionSelect::MemoryToRegister(_) => todo!(),
+            ArithmeticInstructionSelect::MemoryToRegister(instr) => {
+                let current_value = self.get_register(&instr.dest);
+                let incoming_value = if instr.dest.is_wide() {
+                    self.get_memory_word(self.resolve_eaddr(&instr.source))
+                } else {
+                    self.get_memory_byte(self.resolve_eaddr(&instr.source)) as u16
+                };
+                let (new_value, flags) =
+                    Self::apply(instruction.op, current_value, incoming_value, false);
+                if flags.should_write {
+                    self.set_register(&instr.dest, new_value);
+                }
+                (format!("{}", instr.dest), current_value, new_value, flags)
+            }
             ArithmeticInstructionSelect::ImmediateToRegisterByte(register, value, is_extended) => {
                 let current_value = self.get_register(register);
                 let (new_value, flags) = if *is_extended {
@@ -800,7 +818,7 @@ impl Computer {
                 )
             }
         };
-        let result_desc = if flags.should_write {
+        let result_desc = if flags.should_write && old_value != new_value {
             format!(
                 " {}:{}->{}",
                 source,
@@ -855,20 +873,26 @@ impl Computer {
             Jump::Loop => {
                 let reg = Register::General(GeneralRegister::C, RegisterSubset::All);
                 let prev = self.get_register(&reg);
-                self.set_register(&reg, prev - 1);
+                let new_value = if prev == 0 {
+                    self.set_register(&reg, u16::MAX);
+                    u16::MAX
+                } else {
+                    self.set_register(&reg, prev - 1);
+                    prev - 1
+                };
                 reg_desc.push_str(&format!(
-                    " cx:{}->{}",
+                    " ; cx:{}->{}",
                     Self::display_small(prev),
-                    Self::display_small(prev - 1)
+                    Self::display_small(new_value)
                 ));
-                prev == 1
+                prev != 1
             }
             Jump::Loopz => {
                 let reg = Register::General(GeneralRegister::C, RegisterSubset::All);
                 let prev = self.get_register(&reg);
                 self.set_register(&reg, prev - 1);
                 reg_desc.push_str(&format!(
-                    " cx:{}->{}",
+                    " ; cx:{}->{}",
                     Self::display_small(prev),
                     Self::display_small(prev - 1)
                 ));
