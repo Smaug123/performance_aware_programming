@@ -814,6 +814,7 @@ impl Computer {
     }
 
     fn step_jump(&mut self, jump: Jump, offset: i8, old_ip: Option<u16>) -> String {
+        let mut reg_desc = "".to_owned();
         let should_jump = match jump {
             Jump::Je => self.flags.get(Flag::Status(StatusFlag::Zero)),
             Jump::Jl => {
@@ -855,18 +856,33 @@ impl Computer {
                 let reg = Register::General(GeneralRegister::C, RegisterSubset::All);
                 let prev = self.get_register(&reg);
                 self.set_register(&reg, prev - 1);
+                reg_desc.push_str(&format!(
+                    " cx:{}->{}",
+                    Self::display_small(prev),
+                    Self::display_small(prev - 1)
+                ));
                 prev == 1
             }
             Jump::Loopz => {
                 let reg = Register::General(GeneralRegister::C, RegisterSubset::All);
                 let prev = self.get_register(&reg);
                 self.set_register(&reg, prev - 1);
+                reg_desc.push_str(&format!(
+                    " cx:{}->{}",
+                    Self::display_small(prev),
+                    Self::display_small(prev - 1)
+                ));
                 prev != 1 && self.flags.get(Flag::Status(StatusFlag::Zero))
             }
             Jump::Loopnz => {
                 let reg = Register::General(GeneralRegister::C, RegisterSubset::All);
                 let prev = self.get_register(&reg);
                 self.set_register(&reg, prev - 1);
+                reg_desc.push_str(&format!(
+                    " ; cx:{}->{}",
+                    Self::display_small(prev),
+                    Self::display_small(prev - 1)
+                ));
                 prev != 1 && !self.flags.get(Flag::Status(StatusFlag::Zero))
             }
             Jump::Jcxz => todo!(),
@@ -879,7 +895,8 @@ impl Computer {
             None => "".to_owned(),
             Some(old_ip) => {
                 format!(
-                    " ; ip:{}->{}",
+                    "{}ip:{}->{}",
+                    if reg_desc.is_empty() { " ; " } else { " " },
                     Self::display_small(old_ip),
                     Self::display_small(self.program_counter)
                 )
@@ -887,10 +904,11 @@ impl Computer {
         };
         // In NASM, the dollar sign is an offset *without* including the bytes of the jump.
         format!(
-            "{} ${}{}{}",
+            "{} ${}{}{}{}",
             jump,
             if offset > 0 { "+" } else { "" },
             offset + 2,
+            reg_desc,
             ip_desc
         )
     }

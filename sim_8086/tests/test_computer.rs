@@ -136,7 +136,6 @@ mod test_computer {
         test_sim(input_bytecode, expected_trace, true)
     }
 
-    /*
     #[test]
     fn test_challenge_jumps() {
         let input_bytecode =
@@ -146,6 +145,7 @@ mod test_computer {
         test_sim(input_bytecode, expected_trace, true)
     }
 
+    /*
     #[test]
     fn test_memory_mov() {
         let input_bytecode =
