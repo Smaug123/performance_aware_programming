@@ -140,11 +140,8 @@ fn main() {
     let expected_bytecode = load_machine_code(args.compiled_path);
     let asm = fs::read_to_string(args.asm_path).unwrap();
 
-    match args.verify_consistency {
-        Some(true) => {
-            verify_consistency(&expected_bytecode, &asm);
-        }
-        _ => {}
+    if let Some(true) = args.verify_consistency {
+        verify_consistency(&expected_bytecode, &asm);
     }
     let _computer = run(expected_bytecode);
 }
