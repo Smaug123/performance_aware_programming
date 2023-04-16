@@ -64,10 +64,10 @@ mod test_computer {
 
         trace.push("".to_owned());
 
-        assert_eq!(
-            trace,
-            clean_trace(expected_trace).lines().collect::<Vec<_>>()
-        )
+        let cleaned = clean_trace(expected_trace);
+        let expected = cleaned.lines().collect::<Vec<_>>();
+
+        assert_eq!(trace, expected)
     }
 
     #[test]
@@ -145,7 +145,6 @@ mod test_computer {
         test_sim(input_bytecode, expected_trace, true)
     }
 
-    /*
     #[test]
     fn test_memory_mov() {
         let input_bytecode =
@@ -194,5 +193,4 @@ mod test_computer {
         );
         test_sim(input_bytecode, expected_trace, true)
     }
-    */
 }

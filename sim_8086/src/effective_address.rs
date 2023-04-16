@@ -18,8 +18,8 @@ where
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             WithOffset::Basic(t) => f.write_fmt(format_args!("{}", t)),
-            WithOffset::WithU8(t, offset) => f.write_fmt(format_args!("[{} + {}]", t, offset)),
-            WithOffset::WithU16(t, offset) => f.write_fmt(format_args!("[{} + {}]", t, offset)),
+            WithOffset::WithU8(t, offset) => f.write_fmt(format_args!("[{}+{}]", t, offset)),
+            WithOffset::WithU16(t, offset) => f.write_fmt(format_args!("[{}+{}]", t, offset)),
         }
     }
 }
@@ -45,33 +45,59 @@ impl Display for EffectiveAddress {
         match self {
             EffectiveAddress::Sum(w) => match w {
                 WithOffset::Basic((base, source_dest)) => {
-                    f.write_fmt(format_args!("[{} + {}i]", base, source_dest))
+                    f.write_fmt(format_args!("[{}+{}i]", base, source_dest))
                 }
                 WithOffset::WithU8((base, source_dest), offset) => {
-                    f.write_fmt(format_args!("[{} + {}i + {}]", base, source_dest, offset))
+                    if *offset == 0 {
+                        f.write_fmt(format_args!("[{}+{}i]", base, source_dest))
+                    } else {
+                        f.write_fmt(format_args!("[{}+{}i+{}]", base, source_dest, offset))
+                    }
                 }
                 WithOffset::WithU16((base, source_dest), offset) => {
-                    f.write_fmt(format_args!("[{} + {}i + {}]", base, source_dest, offset))
+                    if *offset == 0 {
+                        f.write_fmt(format_args!("[{}+{}i]", base, source_dest))
+                    } else {
+                        f.write_fmt(format_args!("[{}+{}i+{}]", base, source_dest, offset))
+                    }
                 }
             },
             EffectiveAddress::SpecifiedIn(WithOffset::Basic(source_dest)) => {
                 f.write_fmt(format_args!("[{}i]", source_dest))
             }
             EffectiveAddress::SpecifiedIn(WithOffset::WithU8(source_dest, offset)) => {
-                f.write_fmt(format_args!("[{}i + {}]", source_dest, offset))
+                if *offset == 0 {
+                    f.write_fmt(format_args!("[{}i]", source_dest))
+                } else {
+                    f.write_fmt(format_args!("[{}i+{}]", source_dest, offset))
+                }
             }
             EffectiveAddress::SpecifiedIn(WithOffset::WithU16(source_dest, offset)) => {
-                f.write_fmt(format_args!("[{}i + {}]", source_dest, offset))
+                if *offset == 0 {
+                    f.write_fmt(format_args!("[{}i]", source_dest))
+                } else {
+                    f.write_fmt(format_args!("[{}i+{}]", source_dest, offset))
+                }
             }
             EffectiveAddress::Bx(offset) => match offset {
                 WithOffset::Basic(()) => f.write_str("bx"),
-                WithOffset::WithU8((), offset) => f.write_fmt(format_args!("[bx + {}]", offset)),
-                WithOffset::WithU16((), offset) => f.write_fmt(format_args!("[bx + {}]", offset)),
+                WithOffset::WithU8((), offset) => f.write_fmt(format_args!("[bx+{}]", offset)),
+                WithOffset::WithU16((), offset) => f.write_fmt(format_args!("[bx+{}]", offset)),
             },
-            EffectiveAddress::Direct(location) => f.write_fmt(format_args!("[{}]", location)),
-            EffectiveAddress::BasePointer(offset) => f.write_fmt(format_args!("[bp + {}]", offset)),
+            EffectiveAddress::Direct(location) => f.write_fmt(format_args!("[+{}]", location)),
+            EffectiveAddress::BasePointer(offset) => {
+                if *offset == 0 {
+                    f.write_str("[bp]")
+                } else {
+                    f.write_fmt(format_args!("[bp+{}]", offset))
+                }
+            }
             EffectiveAddress::BasePointerWide(offset) => {
-                f.write_fmt(format_args!("[bp + {}]", offset))
+                if *offset == 0 {
+                    f.write_str("[bp]")
+                } else {
+                    f.write_fmt(format_args!("[bp+{}]", offset))
+                }
             }
         }
     }

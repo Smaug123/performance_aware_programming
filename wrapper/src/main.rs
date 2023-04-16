@@ -1,6 +1,7 @@
 use std::{fs, path::Path};
 
 use clap::Parser;
+use sim_8086::computer::Computer;
 use sim_8086::instruction::Instruction;
 use sim_8086::program::Program;
 
@@ -54,12 +55,8 @@ where
     true
 }
 
-fn main() {
-    let args = Args::parse();
-
-    let expected_bytecode = load_machine_code(args.compiled_path);
-    let asm = fs::read_to_string(args.asm_path).unwrap();
-    let (remaining, compiled) = sim_8086::assembly::program(&asm).unwrap();
+fn verify_consistency(pre_compiled: &Vec<u8>, asm: &str) {
+    let (remaining, compiled) = sim_8086::assembly::program(asm).unwrap();
 
     if !remaining.is_empty() {
         println!(
@@ -70,15 +67,25 @@ fn main() {
     }
 
     let actual_bytecode = compiled.to_bytes();
-    if expected_bytecode != actual_bytecode {
+    if pre_compiled.len() != actual_bytecode.len() {
         println!(
             "Expected: {:?}\nActual:   {:?}",
-            expected_bytecode, actual_bytecode
+            pre_compiled, actual_bytecode
         );
         std::process::exit(1)
     }
 
-    let disassembled = Program::of_bytes(expected_bytecode.iter().cloned());
+    for (pre_compiled, actual) in pre_compiled.iter().zip(actual_bytecode.iter()) {
+        if *pre_compiled != *actual {
+            println!(
+                "Expected: {:?}\nActual:   {:?}",
+                pre_compiled, actual_bytecode
+            );
+            std::process::exit(1)
+        }
+    }
+
+    let disassembled = Program::of_bytes(pre_compiled.iter().cloned());
 
     if disassembled != compiled {
         println!("Disassembled and compiled versions do not produce the same bytes. From disassembly:\n{}\nFrom assembling the input asm:\n{}", disassembled, compiled);
@@ -93,4 +100,44 @@ fn main() {
     println!(
         "Our assembly was equal to the reference, and it disassembled back to the same structure."
     )
+}
+
+fn run(bytecode: Vec<u8>) -> Computer {
+    let program = Program::of_bytes(bytecode.iter().cloned());
+    let mut computer = Computer::new();
+    let mut counter = 0usize;
+    let mut instructions = vec![None; bytecode.len()];
+    for instruction in program.instructions.iter() {
+        instructions[counter] = Some(instruction);
+        counter += instruction.length() as usize;
+    }
+
+    let end_of_instructions = counter;
+
+    loop {
+        let counter = computer.get_program_counter() as usize;
+        if counter >= end_of_instructions {
+            break;
+        }
+        match instructions[counter] {
+            None => {
+                panic!("landed in middle of instruction")
+            }
+            Some(instruction) => {
+                computer.step(instruction, false);
+            }
+        }
+    }
+
+    computer
+}
+
+fn main() {
+    let args = Args::parse();
+
+    let expected_bytecode = load_machine_code(args.compiled_path);
+    let asm = fs::read_to_string(args.asm_path).unwrap();
+
+    verify_consistency(&expected_bytecode, &asm);
+    let _computer = run(expected_bytecode);
 }

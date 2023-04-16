@@ -243,6 +243,26 @@ mod test_program {
         test_disassembler(asm, bytecode)
     }
 
+    /*
+        #[test]
+        fn test_completionist_parser() {
+            let input_asm =
+                include_str!("../../computer_enhance/perfaware/part1/listing_0042_completionist_decode.asm");
+            let input_bytecode =
+                include_bytes!("../../computer_enhance/perfaware/part1/listing_0042_completionist_decode");
+            test_parser(input_asm, input_bytecode)
+        }
+
+        #[test]
+        fn test_completionist_disassembler() {
+            let bytecode =
+                include_bytes!("../../computer_enhance/perfaware/part1/listing_0042_completionist_decode");
+            let asm =
+                include_str!("../../computer_enhance/perfaware/part1/listing_0042_completionist_decode.asm");
+            test_disassembler(asm, bytecode)
+        }
+    */
+
     #[test]
     fn test_immediate_movs_parser() {
         let input_asm =
