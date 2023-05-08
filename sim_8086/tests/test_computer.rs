@@ -67,7 +67,11 @@ mod test_computer {
         let cleaned = clean_trace(expected_trace);
         let expected = cleaned.lines().collect::<Vec<_>>();
 
-        assert_eq!(trace, expected)
+        assert_eq!(trace.len(), expected.len());
+
+        for (traced, expected) in trace.iter().zip(expected.iter()) {
+            assert_eq!(traced, expected)
+        }
     }
 
     #[test]
