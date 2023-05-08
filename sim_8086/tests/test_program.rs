@@ -549,4 +549,148 @@ mod test_program {
         allowed.insert((vec![198, 71, 245, 255], vec![198, 135, 245, 0, 255]));
         test_disassembler_lax(asm, bytecode, allowed)
     }
+
+    #[test]
+    fn test_estimating_cycles_parser() {
+        let input_asm =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0056_estimating_cycles.asm");
+        let input_bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0056_estimating_cycles");
+        test_parser(input_asm, input_bytecode)
+    }
+
+    #[test]
+    fn test_estimating_cycles_disassembler() {
+        let bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0056_estimating_cycles");
+        let asm =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0056_estimating_cycles.asm");
+        test_disassembler(asm, bytecode)
+    }
+
+    #[test]
+    fn test_challenge_cycles_parser() {
+        let input_asm =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0057_challenge_cycles.asm");
+        let input_bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0057_challenge_cycles");
+        test_parser(input_asm, input_bytecode)
+    }
+
+    #[test]
+    fn test_challenge_cycles_disassembler() {
+        let bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0057_challenge_cycles");
+        let asm =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0057_challenge_cycles.asm");
+        test_disassembler(asm, bytecode)
+    }
+
+    #[test]
+    fn test_single_scalar_parser() {
+        let input_asm =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0059_SingleScalar.asm");
+        let input_bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0059_SingleScalar");
+        test_parser(input_asm, input_bytecode)
+    }
+
+    #[test]
+    fn test_single_scalar_disassembler() {
+        let bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0059_SingleScalar");
+        let asm =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0059_SingleScalar.asm");
+        test_disassembler(asm, bytecode)
+    }
+
+    #[test]
+    fn test_unroll2_scalar_parser() {
+        let input_asm =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0060_Unroll2Scalar.asm");
+        let input_bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0060_Unroll2Scalar");
+        test_parser(input_asm, input_bytecode)
+    }
+
+    #[test]
+    fn test_unroll2_scalar_disassembler() {
+        let bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0060_Unroll2Scalar");
+        let asm =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0060_Unroll2Scalar.asm");
+        test_disassembler(asm, bytecode)
+    }
+
+    #[test]
+    fn test_dual_scalar_parser() {
+        let input_asm =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0061_DualScalar.asm");
+        let input_bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0061_DualScalar");
+        test_parser(input_asm, input_bytecode)
+    }
+
+    #[test]
+    fn test_dual_scalar_disassembler() {
+        let bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0061_DualScalar");
+        let asm =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0061_DualScalar.asm");
+        test_disassembler(asm, bytecode)
+    }
+
+    #[test]
+    fn test_quad_scalar_parser() {
+        let input_asm =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0062_QuadScalar.asm");
+        let input_bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0062_QuadScalar");
+        test_parser(input_asm, input_bytecode)
+    }
+
+    #[test]
+    fn test_quad_scalar_disassembler() {
+        let bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0062_QuadScalar");
+        let asm =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0062_QuadScalar.asm");
+        test_disassembler(asm, bytecode)
+    }
+
+    #[test]
+    fn test_quad_scalar_ptr_parser() {
+        let input_asm =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0063_QuadScalarPtr.asm");
+        let input_bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0063_QuadScalarPtr");
+        test_parser(input_asm, input_bytecode)
+    }
+
+    #[test]
+    fn test_quad_scalar_ptr_disassembler() {
+        let bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0063_QuadScalarPtr");
+        let asm =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0063_QuadScalarPtr.asm");
+        test_disassembler(asm, bytecode)
+    }
+
+    #[test]
+    fn test_tree_scalar_ptr_parser() {
+        let input_asm =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0064_TreeScalarPtr.asm");
+        let input_bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0064_TreeScalarPtr");
+        test_parser(input_asm, input_bytecode)
+    }
+
+    #[test]
+    fn test_tree_scalar_ptr_disassembler() {
+        let bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0064_TreeScalarPtr");
+        let asm =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0064_TreeScalarPtr.asm");
+        test_disassembler(asm, bytecode)
+    }
 }
