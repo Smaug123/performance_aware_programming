@@ -12,8 +12,7 @@ use nom::{
 };
 
 use crate::boolean_instruction::{
-    BooleanInstruction, BooleanInstructionDestination, BooleanInstructionType, ImmediateToReg,
-    RegRegBoolean,
+    BooleanInstruction, BooleanInstructionDestination, BooleanInstructionType, RegRegBoolean,
 };
 use crate::inc_instruction::IncInstruction;
 use crate::{
@@ -625,33 +624,32 @@ fn boolean_op(input: &str) -> IResult<&str, BooleanInstructionType> {
 }
 
 fn boolean_select(input: &str) -> IResult<&str, BooleanInstructionDestination> {
-    alt((
-        map_res(
-            tuple((terminated(wide_register, argument_sep), wide_register)),
-            |(dest, source)| {
-                Ok::<_, ()>(BooleanInstructionDestination::RegReg(RegRegBoolean {
-                    dest,
-                    source,
-                }))
-            },
-        ),
-        map_res(
-            tuple((terminated(wide_register, argument_sep), literal_u16)),
-            |(dest, immediate)| {
-                Ok::<_, ()>(BooleanInstructionDestination::ImmediateToReg(
-                    ImmediateToReg::Wide(dest, immediate),
-                ))
-            },
-        ),
-        map_res(
-            tuple((terminated(byte_register, argument_sep), literal_u8)),
-            |(dest, immediate)| {
-                Ok::<_, ()>(BooleanInstructionDestination::ImmediateToReg(
-                    ImmediateToReg::Narrow(dest, immediate),
-                ))
-            },
-        ),
-    ))(input)
+    //alt((
+    map_res(
+        tuple((terminated(wide_register, argument_sep), wide_register)),
+        |(dest, source)| {
+            Ok::<_, ()>(BooleanInstructionDestination::RegReg(RegRegBoolean {
+                dest,
+                source,
+            }))
+        },
+    )(input)
+    //map_res(
+    //    tuple((terminated(wide_register, argument_sep), literal_u16)),
+    //    |(dest, immediate)| {
+    //        Ok::<_, ()>(BooleanInstructionDestination::ImmediateToReg(
+    //            ImmediateToReg::Wide(dest, immediate),
+    //        ))
+    //    },
+    //),
+    //map_res(
+    //    tuple((terminated(byte_register, argument_sep), literal_u8)),
+    //    |(dest, immediate)| {
+    //        Ok::<_, ()>(BooleanInstructionDestination::ImmediateToReg(
+    //            ImmediateToReg::Narrow(dest, immediate),
+    //        ))
+    //    },
+    //),
 }
 
 fn boolean_instruction(input: &str) -> IResult<&str, BooleanInstruction> {
@@ -903,12 +901,12 @@ fn move_instruction(input: &str) -> IResult<&str, MoveInstruction> {
 fn inc_instruction(input: &str) -> IResult<&str, IncInstruction> {
     preceded(
         ws(tag("inc ")),
-        alt((
-            map_res(effective_address, |(_, addr)| {
-                Ok::<_, ()>(IncInstruction::Memory(addr))
-            }),
-            map_res(register, |reg| Ok::<_, ()>(IncInstruction::Register(reg))),
-        )),
+        //alt((
+        //map_res(effective_address, |(_, addr)| {
+        //    Ok::<_, ()>(IncInstruction::Memory(addr))
+        //}),
+        map_res(register, |reg| Ok::<_, ()>(IncInstruction::Register(reg))),
+        //)),
     )(input)
 }
 

@@ -483,6 +483,7 @@ impl<A> Instruction<A> {
 
 #[cfg(test)]
 mod test_instruction {
+    use crate::boolean_instruction::BooleanInstructionDestination;
     use crate::{
         arithmetic_instruction::ArithmeticInstructionSelect,
         instruction::Instruction,
@@ -504,6 +505,12 @@ mod test_instruction {
             Instruction::Arithmetic(i) => match &i.instruction {
                 ArithmeticInstructionSelect::RegisterToRegister(data) => {
                     data.source.is_wide() != data.dest.is_wide()
+                }
+                _ => false,
+            },
+            Instruction::Boolean(i) => match &i.dest {
+                BooleanInstructionDestination::RegReg(reg_reg) => {
+                    reg_reg.source.is_wide() != reg_reg.dest.is_wide()
                 }
                 _ => false,
             },

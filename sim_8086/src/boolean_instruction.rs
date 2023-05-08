@@ -29,12 +29,6 @@ pub struct RegRegBoolean {
 }
 
 #[derive(Eq, PartialEq, Debug, Hash, Clone, Arbitrary)]
-pub enum ImmediateToReg {
-    Wide(Register, u16),
-    Narrow(Register, u8),
-}
-
-#[derive(Eq, PartialEq, Debug, Hash, Clone, Arbitrary)]
 pub enum ImmediateToMem {
     Wide(EffectiveAddress, u16),
     Narrow(EffectiveAddress, u8),
@@ -49,8 +43,6 @@ pub enum ImmediateToAcc {
 #[derive(Eq, PartialEq, Debug, Hash, Clone, Arbitrary)]
 pub enum BooleanInstructionDestination {
     RegReg(RegRegBoolean),
-    ImmediateToReg(ImmediateToReg),
-    ImmediateToMem(ImmediateToMem),
     ImmediateToAcc(ImmediateToAcc),
 }
 
@@ -59,12 +51,6 @@ impl Display for BooleanInstructionDestination {
         match self {
             BooleanInstructionDestination::RegReg(inst) => {
                 f.write_fmt(format_args!("{}, {}", inst.dest, inst.source))
-            }
-            BooleanInstructionDestination::ImmediateToReg(_inst) => {
-                todo!()
-            }
-            BooleanInstructionDestination::ImmediateToMem(_inst) => {
-                todo!()
             }
             BooleanInstructionDestination::ImmediateToAcc(inst) => match inst {
                 ImmediateToAcc::Wide(wide) => f.write_fmt(format_args!("ax, {}", wide)),
@@ -89,6 +75,7 @@ impl Display for BooleanInstruction {
 impl BooleanInstruction {
     pub fn to_bytes(&self) -> Vec<u8> {
         match &self.dest {
+            /*
             BooleanInstructionDestination::ImmediateToMem(immediate) => {
                 let mut result = Vec::with_capacity(2);
                 let (opcode, reg) = match self.selection {
@@ -117,6 +104,7 @@ impl BooleanInstruction {
 
                 result
             }
+             */
             BooleanInstructionDestination::RegReg(reg_reg) => {
                 let mut result = Vec::with_capacity(2);
                 let opcode = match self.selection {
@@ -163,9 +151,6 @@ impl BooleanInstruction {
 
                 result
             }
-            BooleanInstructionDestination::ImmediateToReg(_) => {
-                todo!()
-            }
         }
     }
 
@@ -175,9 +160,7 @@ impl BooleanInstruction {
                 ImmediateToAcc::Wide(_) => 3,
                 ImmediateToAcc::Narrow(_) => 2,
             },
-            BooleanInstructionDestination::RegReg(_) => todo!(),
-            BooleanInstructionDestination::ImmediateToMem(_) => todo!(),
-            BooleanInstructionDestination::ImmediateToReg(_) => todo!(),
+            BooleanInstructionDestination::RegReg(_) => 2,
         }
     }
 }

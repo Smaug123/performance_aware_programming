@@ -879,20 +879,21 @@ impl Computer {
                 };
 
                 self.set_register(reg, new_value)
-            }
-            IncInstruction::Memory(addr) => {
-                let location = self.resolve_eaddr(addr);
-                let old_value = self.get_memory_word(location);
-                let new_value = if old_value == u16::MAX {
-                    self.set_flag(Flag::Status(StatusFlag::Overflow), true);
-                    0
-                } else {
-                    self.set_flag(Flag::Status(StatusFlag::Overflow), false);
-                    old_value + 1
-                };
+            } /*
+              IncInstruction::Memory(addr) => {
+                  let location = self.resolve_eaddr(addr);
+                  let old_value = self.get_memory_word(location);
+                  let new_value = if old_value == u16::MAX {
+                      self.set_flag(Flag::Status(StatusFlag::Overflow), true);
+                      0
+                  } else {
+                      self.set_flag(Flag::Status(StatusFlag::Overflow), false);
+                      old_value + 1
+                  };
 
-                self.set_memory_word(location, new_value)
-            }
+                  self.set_memory_word(location, new_value)
+              }
+               */
         };
 
         format!("{instruction} ;{result_desc}")
