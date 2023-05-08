@@ -38,7 +38,7 @@ where
         let mut labels = HashMap::new();
         for (counter, instruction) in self.instructions.as_ref().iter().enumerate() {
             if let Instruction::Trivia(TriviaInstruction::Label(s)) = instruction {
-                if let Some(s) = labels.insert(*s, counter) {
+                if let Some(s) = labels.insert(s.trim(), counter) {
                     panic!("same label twice: {}", s)
                 }
             }
@@ -54,7 +54,7 @@ where
 
         for (counter, instruction) in self.instructions.as_ref().iter().enumerate() {
             if let Instruction::Jump(_, offset) = instruction {
-                let desired_target_instruction_number = match labels.get(offset) {
+                let desired_target_instruction_number = match labels.get(offset.trim()) {
                     Some(s) => *s,
                     None => panic!("Tried to jump to label, but was not present: '{}'", offset),
                 };

@@ -23,8 +23,14 @@ mod test_program {
             (Instruction::Move(_), _) => false,
             (Instruction::Arithmetic(i1), Instruction::Arithmetic(i2)) => i1 == i2,
             (Instruction::Arithmetic(_), _) => false,
+            (Instruction::Boolean(i1), Instruction::Boolean(i2)) => i1 == i2,
+            (Instruction::Boolean(_), _) => false,
             (Instruction::Jump(i1, _), Instruction::Jump(i2, _)) => i1 == i2,
             (Instruction::Jump(_, _), _) => false,
+            (Instruction::Inc(i1), Instruction::Inc(i2)) => i1 == i2,
+            (Instruction::Inc(_), _) => false,
+            (Instruction::Ret, Instruction::Ret) => true,
+            (Instruction::Ret, _) => false,
             (Instruction::Trivia(_), Instruction::Trivia(_)) => true,
             (Instruction::Trivia(_), _) => false,
         }
@@ -38,7 +44,7 @@ mod test_program {
         T: AsRef<[u8]>,
     {
         let (remaining, parsed) = assembly::program(input_asm).unwrap();
-        assert_eq!(remaining, "");
+        assert_eq!(remaining.trim(), "");
         assert_eq!(parsed.bits, 16);
 
         let adjusted_program: Program<Vec<Instruction<_>>, _> = Program {
@@ -61,12 +67,10 @@ mod test_program {
             .enumerate()
         {
             if actual != expected {
+                let ours = adjusted_program.to_bytes();
                 panic!(
                     "Failed assertion: expected {} (from Casey), got {}, at position {}\n{:?}",
-                    expected,
-                    actual,
-                    i,
-                    adjusted_program.to_bytes()
+                    expected, actual, i, ours
                 )
             }
         }
@@ -89,7 +93,7 @@ mod test_program {
         let disassembled = Program::of_bytes(input_bytecode.as_ref().iter().cloned());
 
         let (remaining, pre_compiled) = assembly::program(&input_asm).unwrap();
-        assert_eq!(remaining, "");
+        assert_eq!(remaining.trim(), "");
 
         let disassembled = disassembled.instructions.iter().filter(|i| match i {
             Instruction::Trivia(_) => false,
@@ -549,4 +553,155 @@ mod test_program {
         allowed.insert((vec![198, 71, 245, 255], vec![198, 135, 245, 0, 255]));
         test_disassembler_lax(asm, bytecode, allowed)
     }
+
+    #[test]
+    fn test_estimating_cycles_parser() {
+        let input_asm = include_str!(
+            "../../computer_enhance/perfaware/part1/listing_0056_estimating_cycles.asm"
+        );
+        let input_bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0056_estimating_cycles");
+        test_parser(input_asm, input_bytecode)
+    }
+
+    #[test]
+    fn test_estimating_cycles_disassembler() {
+        let bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0056_estimating_cycles");
+        let asm = include_str!(
+            "../../computer_enhance/perfaware/part1/listing_0056_estimating_cycles.asm"
+        );
+        test_disassembler(asm, bytecode)
+    }
+
+    #[test]
+    fn test_challenge_cycles_parser() {
+        let input_asm = include_str!(
+            "../../computer_enhance/perfaware/part1/listing_0057_challenge_cycles.asm"
+        );
+        let input_bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0057_challenge_cycles");
+        test_parser(input_asm, input_bytecode)
+    }
+
+    #[test]
+    fn test_challenge_cycles_disassembler() {
+        let bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0057_challenge_cycles");
+        let asm = include_str!(
+            "../../computer_enhance/perfaware/part1/listing_0057_challenge_cycles.asm"
+        );
+        test_disassembler(asm, bytecode)
+    }
+
+    #[test]
+    fn test_single_scalar_parser() {
+        let input_asm =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0059_SingleScalar.asm");
+        let input_bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0059_SingleScalar");
+        test_parser(input_asm, input_bytecode)
+    }
+
+    #[test]
+    fn test_single_scalar_disassembler() {
+        let bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0059_SingleScalar");
+        let asm =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0059_SingleScalar.asm");
+        test_disassembler(asm, bytecode)
+    }
+
+    #[test]
+    fn test_unroll2_scalar_parser() {
+        let input_asm =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0060_Unroll2Scalar.asm");
+        let input_bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0060_Unroll2Scalar");
+        test_parser(input_asm, input_bytecode)
+    }
+
+    #[test]
+    fn test_unroll2_scalar_disassembler() {
+        let bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0060_Unroll2Scalar");
+        let asm =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0060_Unroll2Scalar.asm");
+        test_disassembler(asm, bytecode)
+    }
+
+    #[test]
+    fn test_dual_scalar_parser() {
+        let input_asm =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0061_DualScalar.asm");
+        let input_bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0061_DualScalar");
+        test_parser(input_asm, input_bytecode)
+    }
+
+    #[test]
+    fn test_dual_scalar_disassembler() {
+        let bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0061_DualScalar");
+        let asm =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0061_DualScalar.asm");
+        test_disassembler(asm, bytecode)
+    }
+
+    #[test]
+    fn test_quad_scalar_parser() {
+        let input_asm =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0062_QuadScalar.asm");
+        let input_bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0062_QuadScalar");
+        test_parser(input_asm, input_bytecode)
+    }
+
+    #[test]
+    fn test_quad_scalar_disassembler() {
+        let bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0062_QuadScalar");
+        let asm =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0062_QuadScalar.asm");
+        test_disassembler(asm, bytecode)
+    }
+
+    /*
+    #[test]
+    fn test_quad_scalar_ptr_parser() {
+        let input_asm =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0063_QuadScalarPtr.asm");
+        let input_bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0063_QuadScalarPtr");
+        test_parser(input_asm, input_bytecode)
+    }
+
+    #[test]
+    fn test_quad_scalar_ptr_disassembler() {
+        let bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0063_QuadScalarPtr");
+        let asm =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0063_QuadScalarPtr.asm");
+        test_disassembler(asm, bytecode)
+    }
+
+    #[test]
+    fn test_tree_scalar_ptr_parser() {
+        let input_asm =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0064_TreeScalarPtr.asm");
+        let input_bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0064_TreeScalarPtr");
+        test_parser(input_asm, input_bytecode)
+    }
+
+    #[test]
+    fn test_tree_scalar_ptr_disassembler() {
+        let bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0064_TreeScalarPtr");
+        let asm =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0064_TreeScalarPtr.asm");
+        test_disassembler(asm, bytecode)
+    }
+
+     */
 }

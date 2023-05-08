@@ -11,6 +11,10 @@ use nom::{
     IResult,
 };
 
+use crate::boolean_instruction::{
+    BooleanInstruction, BooleanInstructionDestination, BooleanInstructionType, RegRegBoolean,
+};
+use crate::inc_instruction::IncInstruction;
 use crate::{
     arithmetic_expression::{ArithmeticExpression, Token},
     arithmetic_instruction::{
@@ -159,7 +163,7 @@ fn register(input: &str) -> IResult<&str, Register> {
 fn reg_reg_move_instruction(input: &str) -> IResult<&str, RegRegMove> {
     map_res(
         preceded(
-            tag("mov "),
+            ws(tag("mov ")),
             tuple((terminated(register, argument_sep), register)),
         ),
         |(dest, source)| Ok::<_, ()>(RegRegMove { dest, source }),
@@ -421,7 +425,7 @@ fn segment_register(input: &str) -> IResult<&str, SegmentRegister> {
 fn reg_to_seg_move_instruction(input: &str) -> IResult<&str, RegisterToSegment> {
     map_res(
         preceded(
-            tag("mov "),
+            ws(tag("mov ")),
             tuple((terminated(segment_register, ws(char(','))), register)),
         ),
         |(dest, source)| Ok::<_, ()>(RegisterToSegment { dest, source }),
@@ -431,7 +435,7 @@ fn reg_to_seg_move_instruction(input: &str) -> IResult<&str, RegisterToSegment> 
 fn mem_to_seg_move_instruction(input: &str) -> IResult<&str, MemoryToSegment> {
     map_res(
         preceded(
-            tag("mov "),
+            ws(tag("mov ")),
             tuple((
                 terminated(segment_register, ws(char(','))),
                 effective_address,
@@ -447,7 +451,7 @@ fn mem_to_seg_move_instruction(input: &str) -> IResult<&str, MemoryToSegment> {
 fn seg_to_mem_move_instruction(input: &str) -> IResult<&str, SegmentToMemory> {
     map_res(
         preceded(
-            tag("mov "),
+            ws(tag("mov ")),
             tuple((
                 terminated(effective_address, ws(char(','))),
                 segment_register,
@@ -463,7 +467,7 @@ fn seg_to_mem_move_instruction(input: &str) -> IResult<&str, SegmentToMemory> {
 fn seg_to_reg_move_instruction(input: &str) -> IResult<&str, SegmentToRegister> {
     map_res(
         preceded(
-            tag("mov "),
+            ws(tag("mov ")),
             tuple((terminated(register, ws(char(','))), segment_register)),
         ),
         |(dest, source)| Ok::<_, ()>(SegmentToRegister { dest, source }),
@@ -473,7 +477,7 @@ fn seg_to_reg_move_instruction(input: &str) -> IResult<&str, SegmentToRegister> 
 fn reg_mem_move_instruction(input: &str) -> IResult<&str, RegMemMove> {
     map_res(
         preceded(
-            tag("mov "),
+            ws(tag("mov ")),
             tuple((terminated(effective_address, argument_sep), register)),
         ),
         |((tag, address), register)| match (tag, register.is_wide()) {
@@ -489,7 +493,7 @@ fn reg_mem_move_instruction(input: &str) -> IResult<&str, RegMemMove> {
 fn mem_reg_move_instruction(input: &str) -> IResult<&str, MemRegMove> {
     map_res(
         preceded(
-            tag("mov "),
+            ws(tag("mov ")),
             tuple((terminated(register, argument_sep), effective_address)),
         ),
         |(register, (tag, address))| match (tag, register.is_wide()) {
@@ -519,7 +523,7 @@ fn immediate_byte(input: &str) -> IResult<&str, (Register, u8)> {
 fn immediate_to_register_instruction(input: &str) -> IResult<&str, ImmediateToRegister> {
     map_res(
         preceded(
-            tag("mov "),
+            ws(tag("mov ")),
             alt((
                 map_res(immediate_wide, |(register, x)| {
                     Ok::<_, ()>((register, Err(x)))
@@ -547,7 +551,7 @@ fn immediate_to_register_instruction(input: &str) -> IResult<&str, ImmediateToRe
 fn immediate_to_memory_instruction(input: &str) -> IResult<&str, ImmediateToMemory> {
     map_res(
         tuple((
-            terminated(preceded(tag("mov "), effective_address), argument_sep),
+            terminated(preceded(ws(tag("mov ")), effective_address), argument_sep),
             alt((
                 map_res(literal_u8, |x| Ok::<_, ()>(Ok(x))),
                 map_res(literal_u16, |x| Ok::<_, ()>(Err(x))),
@@ -573,7 +577,7 @@ fn immediate_to_memory_instruction(input: &str) -> IResult<&str, ImmediateToMemo
 fn memory_to_accumulator_instruction(input: &str) -> IResult<&str, MemoryToAccumulator> {
     map_res(
         preceded(
-            tag("mov a"),
+            preceded(multispace0, tag("mov a")),
             tuple((
                 terminated(alt((char('h'), char('x'))), argument_sep),
                 bracketed(literal_u16),
@@ -593,7 +597,7 @@ fn memory_to_accumulator_instruction(input: &str) -> IResult<&str, MemoryToAccum
 fn accumulator_to_memory_instruction(input: &str) -> IResult<&str, AccumulatorToMemory> {
     map_res(
         preceded(
-            tag("mov "),
+            ws(tag("mov ")),
             tuple((
                 terminated(bracketed(literal_u16), tuple((argument_sep, char('a')))),
                 alt((char('h'), char('x'))),
@@ -607,6 +611,51 @@ fn accumulator_to_memory_instruction(input: &str) -> IResult<&str, AccumulatorTo
                 Ok(AccumulatorToMemory { address, is_wide })
             }
         },
+    )(input)
+}
+
+fn boolean_op(input: &str) -> IResult<&str, BooleanInstructionType> {
+    alt((
+        map_res(tag("test"), |_| Ok::<_, ()>(BooleanInstructionType::Test)),
+        map_res(tag("and"), |_| Ok::<_, ()>(BooleanInstructionType::And)),
+        map_res(tag("or"), |_| Ok::<_, ()>(BooleanInstructionType::Or)),
+        map_res(tag("xor"), |_| Ok::<_, ()>(BooleanInstructionType::Xor)),
+    ))(input)
+}
+
+fn boolean_select(input: &str) -> IResult<&str, BooleanInstructionDestination> {
+    //alt((
+    map_res(
+        tuple((terminated(wide_register, argument_sep), wide_register)),
+        |(dest, source)| {
+            Ok::<_, ()>(BooleanInstructionDestination::RegReg(RegRegBoolean {
+                dest,
+                source,
+            }))
+        },
+    )(input)
+    //map_res(
+    //    tuple((terminated(wide_register, argument_sep), literal_u16)),
+    //    |(dest, immediate)| {
+    //        Ok::<_, ()>(BooleanInstructionDestination::ImmediateToReg(
+    //            ImmediateToReg::Wide(dest, immediate),
+    //        ))
+    //    },
+    //),
+    //map_res(
+    //    tuple((terminated(byte_register, argument_sep), literal_u8)),
+    //    |(dest, immediate)| {
+    //        Ok::<_, ()>(BooleanInstructionDestination::ImmediateToReg(
+    //            ImmediateToReg::Narrow(dest, immediate),
+    //        ))
+    //    },
+    //),
+}
+
+fn boolean_instruction(input: &str) -> IResult<&str, BooleanInstruction> {
+    map_res(
+        tuple((terminated(boolean_op, char(' ')), ws(boolean_select))),
+        |(selection, dest)| Ok::<_, ()>(BooleanInstruction { dest, selection }),
     )(input)
 }
 
@@ -727,7 +776,7 @@ fn arithmetic_select(input: &str) -> IResult<&str, ArithmeticInstructionSelect> 
 
 fn arithmetic_instruction(input: &str) -> IResult<&str, ArithmeticInstruction> {
     map_res(
-        tuple((terminated(arithmetic_op, char(' ')), arithmetic_select)),
+        tuple((ws(terminated(arithmetic_op, char(' '))), arithmetic_select)),
         |(op, instruction)| Ok::<_, ()>(ArithmeticInstruction { op, instruction }),
     )(input)
 }
@@ -849,12 +898,29 @@ fn move_instruction(input: &str) -> IResult<&str, MoveInstruction> {
     ))(input)
 }
 
+fn inc_instruction(input: &str) -> IResult<&str, IncInstruction> {
+    preceded(
+        ws(tag("inc ")),
+        //alt((
+        //map_res(effective_address, |(_, addr)| {
+        //    Ok::<_, ()>(IncInstruction::Memory(addr))
+        //}),
+        map_res(register, |reg| Ok::<_, ()>(IncInstruction::Register(reg))),
+        //)),
+    )(input)
+}
+
 fn instruction(input: &str) -> IResult<&str, Instruction<&str>> {
     alt((
         map_res(move_instruction, |v| Ok::<_, ()>(Instruction::Move(v))),
+        map_res(boolean_instruction, |v| {
+            Ok::<_, ()>(Instruction::Boolean(v))
+        }),
         map_res(arithmetic_instruction, |v| {
             Ok::<_, ()>(Instruction::Arithmetic(v))
         }),
+        map_res(inc_instruction, |v| Ok::<_, ()>(Instruction::Inc(v))),
+        map_res(tag("ret"), |_| Ok::<_, ()>(Instruction::Ret)),
         map_res(jump, |(v, label)| Ok::<_, ()>(Instruction::Jump(v, label))),
         map_res(label, |v| {
             Ok::<_, ()>(Instruction::Trivia(TriviaInstruction::Label(v)))
@@ -868,12 +934,9 @@ pub fn program(input: &str) -> IResult<&str, Program<Vec<Instruction<&str>>, &st
             many0(line_end),
             separated_pair(
                 bits,
-                many0(line_end),
+                many1(line_end),
                 many0(alt((
-                    map_res(
-                        terminated(preceded(space0, instruction), preceded(space0, line_end)),
-                        |i| Ok::<_, ()>(Some(i)),
-                    ),
+                    map_res(preceded(space0, instruction), |i| Ok::<_, ()>(Some(i))),
                     map_res(preceded(space0, line_end), |_| Ok::<_, ()>(None)),
                 ))),
             ),
@@ -890,6 +953,11 @@ pub fn program(input: &str) -> IResult<&str, Program<Vec<Instruction<&str>>, &st
 
 #[cfg(test)]
 mod test_assembly {
+    use crate::assembly::program;
+    use crate::boolean_instruction::{
+        BooleanInstruction, BooleanInstructionDestination, BooleanInstructionType, RegRegBoolean,
+    };
+    use crate::register::SpecialRegister;
     use crate::{
         arithmetic_instruction::{
             ArithmeticInstruction, ArithmeticInstructionSelect, ArithmeticOperation,
@@ -897,7 +965,7 @@ mod test_assembly {
         assembly::instruction,
         effective_address::{EffectiveAddress, WithOffset},
         instruction::Instruction,
-        move_instruction::{ImmediateToMemory, MoveInstruction},
+        move_instruction::{ImmediateToMemory, MemoryToAccumulator, MoveInstruction},
         register::{GeneralRegister, Register, RegisterSubset},
     };
 
@@ -936,6 +1004,42 @@ mod test_assembly {
     }
 
     #[test]
+    fn mov_acc_parse() {
+        let (remaining, parsed) = instruction("mov ax, [16]").unwrap();
+        assert_eq!(remaining, "");
+        assert_eq!(
+            parsed,
+            Instruction::Move(MoveInstruction::MemoryToAccumulator(MemoryToAccumulator {
+                address: 16,
+                is_wide: true
+            }))
+        )
+    }
+
+    #[test]
+    fn mov_acc_parse_program() {
+        let (remaining, parsed) = program("bits 16\nmov ax, [2555]\nmov ax, [16]").unwrap();
+        assert_eq!(remaining, "");
+        assert_eq!(parsed.bits, 16);
+        let parsed = parsed.instructions;
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(
+            parsed[0].clone(),
+            Instruction::Move(MoveInstruction::MemoryToAccumulator(MemoryToAccumulator {
+                address: 2555,
+                is_wide: true
+            }))
+        );
+        assert_eq!(
+            parsed[1].clone(),
+            Instruction::Move(MoveInstruction::MemoryToAccumulator(MemoryToAccumulator {
+                address: 16,
+                is_wide: true
+            }))
+        );
+    }
+
+    #[test]
     fn mov_parse() {
         let (remaining, parsed) = instruction("mov byte [bx + 61*4 + 1], 255").unwrap();
         assert_eq!(remaining, "");
@@ -961,6 +1065,26 @@ mod test_assembly {
                     u8::MAX - 90 + 1,
                     true
                 )
+            })
+        )
+    }
+
+    #[test]
+    fn test_test_reg_reg() {
+        let parsed = program("bits 16\ntest    di, di\r\n");
+        let (remaining, parsed) = parsed.unwrap();
+        assert_eq!(remaining, "");
+        let parsed = parsed.instructions;
+        assert_eq!(parsed.len(), 1);
+        let parsed = &parsed[0];
+        assert_eq!(
+            parsed.clone(),
+            Instruction::Boolean(BooleanInstruction {
+                selection: BooleanInstructionType::Test,
+                dest: BooleanInstructionDestination::RegReg(RegRegBoolean {
+                    dest: Register::Special(SpecialRegister::DestIndex),
+                    source: Register::Special(SpecialRegister::DestIndex),
+                }),
             })
         )
     }

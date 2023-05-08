@@ -1,5 +1,7 @@
 use std::fmt::Display;
 
+use crate::boolean_instruction::BooleanInstruction;
+use crate::inc_instruction::IncInstruction;
 use crate::{
     arithmetic_instruction::{
         ArithmeticInstruction, ArithmeticInstructionSelect, ArithmeticOperation,
@@ -14,6 +16,23 @@ use crate::{
     },
 };
 
+fn display_big(u: u16) -> String {
+    if u == 0 {
+        "0x0".to_owned()
+    } else {
+        format!("{:#06x}", u)
+    }
+}
+
+fn display_small(u: u16) -> String {
+    if u == 0 {
+        "0x0".to_owned()
+    } else {
+        format!("{:#x}", u)
+    }
+}
+
+#[derive(Clone, Eq, PartialEq)]
 pub struct Registers {
     a: u16,
     b: u16,
@@ -27,6 +46,99 @@ pub struct Registers {
     cs: u16,
     es: u16,
     ds: u16,
+}
+
+impl Registers {
+    pub fn diff(&self, old: &Registers) -> String {
+        let mut result = Vec::new();
+
+        if self.a != old.a {
+            result.push(format!(
+                "ax:{}->{}",
+                display_small(old.a),
+                display_small(self.a)
+            ));
+        }
+        if self.b != old.b {
+            result.push(format!(
+                "bx:{}->{}",
+                display_small(old.b),
+                display_small(self.b)
+            ));
+        }
+        if self.c != old.c {
+            result.push(format!(
+                "cx:{}->{}",
+                display_small(old.c),
+                display_small(self.c)
+            ));
+        }
+        if self.d != old.d {
+            result.push(format!(
+                "dx:{}->{}",
+                display_small(old.d),
+                display_small(self.d)
+            ));
+        }
+        if self.si != old.si {
+            result.push(format!(
+                "si:{}->{}",
+                display_small(old.si),
+                display_small(self.si)
+            ));
+        }
+        if self.di != old.di {
+            result.push(format!(
+                "di:{}->{}",
+                display_small(old.di),
+                display_small(self.di)
+            ));
+        }
+        if self.sp != old.sp {
+            result.push(format!(
+                "sp:{}->{}",
+                display_small(old.sp),
+                display_small(self.sp)
+            ));
+        }
+        if self.bp != old.bp {
+            result.push(format!(
+                "bp:{}->{}",
+                display_small(old.bp),
+                display_small(self.bp)
+            ));
+        }
+        if self.ss != old.ss {
+            result.push(format!(
+                "ss:{}->{}",
+                display_small(old.ss),
+                display_small(self.ss)
+            ));
+        }
+        if self.cs != old.cs {
+            result.push(format!(
+                "cs:{}->{}",
+                display_small(old.cs),
+                display_small(self.cs)
+            ));
+        }
+        if self.es != old.es {
+            result.push(format!(
+                "es:{}->{}",
+                display_small(old.es),
+                display_small(self.es)
+            ));
+        }
+        if self.ds != old.ds {
+            result.push(format!(
+                "ds:{}->{}",
+                display_small(old.ds),
+                display_small(self.ds)
+            ));
+        }
+
+        result.join(" ; ")
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -233,22 +345,6 @@ impl Computer {
         }
     }
 
-    fn display_big(u: u16) -> String {
-        if u == 0 {
-            "0x0".to_owned()
-        } else {
-            format!("{:#06x}", u)
-        }
-    }
-
-    fn display_small(u: u16) -> String {
-        if u == 0 {
-            "0x0".to_owned()
-        } else {
-            format!("{:#x}", u)
-        }
-    }
-
     fn set_register(&mut self, r: &Register, value: u16) -> String {
         let register_for_print = match r {
             Register::General(x, _) => Register::General(x.clone(), RegisterSubset::All),
@@ -326,8 +422,8 @@ impl Computer {
             format!(
                 "{}:{}->{}",
                 register_for_print,
-                Self::display_small(was),
-                Self::display_small(is_now)
+                display_small(was),
+                display_small(is_now)
             )
         } else {
             "".to_owned()
@@ -343,12 +439,7 @@ impl Computer {
             SegmentRegister::Extra => self.registers.es = value,
         }
         let is_now = self.get_segment(r);
-        format!(
-            "{}:{}->{}",
-            r,
-            Self::display_small(was),
-            Self::display_small(is_now)
-        )
+        format!("{}:{}->{}", r, display_small(was), display_small(is_now))
     }
 
     fn get_memory_byte(&self, index: usize) -> u8 {
@@ -370,87 +461,51 @@ impl Computer {
         "".to_owned()
     }
 
+    fn get_base_offset(&self, base: &Base) -> u16 {
+        match base {
+            Base::Bp => self.get_register(&Register::Special(SpecialRegister::BasePointer)),
+            Base::Bx => {
+                self.get_register(&Register::General(GeneralRegister::B, RegisterSubset::All))
+            }
+        }
+    }
+
+    fn get_source_offset(&self, source_dest: &SourceDest) -> u16 {
+        match source_dest {
+            SourceDest::Source => {
+                self.get_register(&Register::Special(SpecialRegister::SourceIndex))
+            }
+            SourceDest::Dest => self.get_register(&Register::Special(SpecialRegister::DestIndex)),
+        }
+    }
+
     fn resolve_eaddr(&self, a: &EffectiveAddress) -> usize {
         match a {
             EffectiveAddress::Sum(WithOffset::Basic((base, source_dest))) => {
-                let base_offset = match base {
-                    Base::Bp => self.get_register(&Register::Special(SpecialRegister::BasePointer)),
-                    Base::Bx => self
-                        .get_register(&Register::General(GeneralRegister::B, RegisterSubset::All)),
-                };
-                let source_offset = match source_dest {
-                    SourceDest::Source => {
-                        self.get_register(&Register::Special(SpecialRegister::SourceIndex))
-                    }
-                    SourceDest::Dest => {
-                        self.get_register(&Register::Special(SpecialRegister::DestIndex))
-                    }
-                };
+                let base_offset = self.get_base_offset(base);
+                let source_offset = self.get_source_offset(source_dest);
                 base_offset as usize + source_offset as usize
             }
             EffectiveAddress::Sum(WithOffset::WithU8((base, source_dest), addend)) => {
-                let base_offset = match base {
-                    Base::Bp => self.get_register(&Register::Special(SpecialRegister::BasePointer)),
-                    Base::Bx => self
-                        .get_register(&Register::General(GeneralRegister::B, RegisterSubset::All)),
-                };
-                let source_offset = match source_dest {
-                    SourceDest::Source => {
-                        self.get_register(&Register::Special(SpecialRegister::SourceIndex))
-                    }
-                    SourceDest::Dest => {
-                        self.get_register(&Register::Special(SpecialRegister::DestIndex))
-                    }
-                };
+                let base_offset = self.get_base_offset(base);
+                let source_offset = self.get_source_offset(source_dest);
                 base_offset as usize + source_offset as usize + *addend as usize
             }
             EffectiveAddress::Sum(WithOffset::WithU16((base, source_dest), addend)) => {
-                let base_offset = match base {
-                    Base::Bp => self.get_register(&Register::Special(SpecialRegister::BasePointer)),
-                    Base::Bx => self
-                        .get_register(&Register::General(GeneralRegister::B, RegisterSubset::All)),
-                };
-                let source_offset = match source_dest {
-                    SourceDest::Source => {
-                        self.get_register(&Register::Special(SpecialRegister::SourceIndex))
-                    }
-                    SourceDest::Dest => {
-                        self.get_register(&Register::Special(SpecialRegister::DestIndex))
-                    }
-                };
+                let base_offset = self.get_base_offset(base);
+                let source_offset = self.get_source_offset(source_dest);
                 base_offset as usize + source_offset as usize + *addend as usize
             }
             EffectiveAddress::SpecifiedIn(WithOffset::Basic(source_dest)) => {
-                let source_offset = match source_dest {
-                    SourceDest::Source => {
-                        self.get_register(&Register::Special(SpecialRegister::SourceIndex))
-                    }
-                    SourceDest::Dest => {
-                        self.get_register(&Register::Special(SpecialRegister::DestIndex))
-                    }
-                };
+                let source_offset = self.get_source_offset(source_dest);
                 source_offset as usize
             }
             EffectiveAddress::SpecifiedIn(WithOffset::WithU8(source_dest, offset)) => {
-                let source_offset = match source_dest {
-                    SourceDest::Source => {
-                        self.get_register(&Register::Special(SpecialRegister::SourceIndex))
-                    }
-                    SourceDest::Dest => {
-                        self.get_register(&Register::Special(SpecialRegister::DestIndex))
-                    }
-                };
+                let source_offset = self.get_source_offset(source_dest);
                 source_offset as usize + *offset as usize
             }
             EffectiveAddress::SpecifiedIn(WithOffset::WithU16(source_dest, offset)) => {
-                let source_offset = match source_dest {
-                    SourceDest::Source => {
-                        self.get_register(&Register::Special(SpecialRegister::SourceIndex))
-                    }
-                    SourceDest::Dest => {
-                        self.get_register(&Register::Special(SpecialRegister::DestIndex))
-                    }
-                };
+                let source_offset = self.get_source_offset(source_dest);
                 source_offset as usize + *offset as usize
             }
             EffectiveAddress::Bx(WithOffset::Basic(())) => {
@@ -480,7 +535,7 @@ impl Computer {
         }
     }
 
-    fn step_mov(&mut self, instruction: &MoveInstruction, old_ip: Option<u16>) -> String {
+    fn step_mov(&mut self, instruction: &MoveInstruction) -> String {
         let preamble = format!("{}", instruction);
         let description = match &instruction {
             MoveInstruction::RegRegMove(mov) => {
@@ -571,16 +626,12 @@ impl Computer {
                 self.set_segment(mov.dest, value)
             }
         };
-        let ip_desc = match old_ip {
-            None => "".to_owned(),
-            Some(old_ip) => format!(
-                "{}ip:{}->{}",
-                if description.is_empty() { "" } else { " " },
-                Self::display_small(old_ip),
-                Self::display_small(self.program_counter)
-            ),
-        };
-        format!("{} ; {}{}", preamble, description, ip_desc)
+        format!(
+            "{} ;{}{}",
+            preamble,
+            if description.is_empty() { "" } else { " " },
+            description
+        )
     }
 
     /// Returns true if the operation overflowed, and true if the value is supposed
@@ -710,12 +761,7 @@ impl Computer {
         parity % 2 == 1
     }
 
-    fn step_arithmetic(
-        &mut self,
-        instruction: &ArithmeticInstruction,
-        old_ip: Option<u16>,
-    ) -> String {
-        let old_flags = self.flags;
+    fn step_arithmetic(&mut self, instruction: &ArithmeticInstruction) -> String {
         let (source, old_value, new_value, flags) = match &instruction.instruction {
             ArithmeticInstructionSelect::RegisterToRegister(instr) => {
                 let current_value = self.get_register(&instr.dest);
@@ -803,36 +849,61 @@ impl Computer {
             Flag::Status(StatusFlag::Parity),
             !Self::is_odd_parity(new_value % 256),
         );
-        let flags_desc = if old_flags == self.flags {
-            "".to_owned()
-        } else {
-            format!(" flags:{}->{}", old_flags, self.flags)
-        };
-        let ip_desc = match old_ip {
-            None => "".to_owned(),
-            Some(old_ip) => {
-                format!(
-                    " ip:{}->{}",
-                    Self::display_small(old_ip),
-                    Self::display_small(self.program_counter)
-                )
-            }
-        };
         let result_desc = if flags.should_write && old_value != new_value {
             format!(
                 " {}:{}->{}",
                 source,
-                Self::display_small(old_value),
-                Self::display_small(new_value)
+                display_small(old_value),
+                display_small(new_value)
             )
         } else {
             "".to_owned()
         };
-        format!("{instruction} ;{result_desc}{ip_desc}{flags_desc}")
+        format!("{instruction} ;{result_desc}")
     }
 
-    fn step_jump(&mut self, jump: Jump, offset: i8, old_ip: Option<u16>) -> String {
-        let mut reg_desc = "".to_owned();
+    fn step_boolean(&mut self, _instruction: &BooleanInstruction) -> String {
+        todo!()
+    }
+
+    fn step_inc(&mut self, instruction: &IncInstruction) -> String {
+        let result_desc = match instruction {
+            IncInstruction::Register(reg) => {
+                let old_value = self.get_register(reg);
+                let new_value = if old_value == u16::MAX {
+                    self.set_flag(Flag::Status(StatusFlag::Overflow), true);
+                    0
+                } else {
+                    self.set_flag(Flag::Status(StatusFlag::Overflow), false);
+                    old_value + 1
+                };
+
+                self.set_register(reg, new_value)
+            } /*
+              IncInstruction::Memory(addr) => {
+                  let location = self.resolve_eaddr(addr);
+                  let old_value = self.get_memory_word(location);
+                  let new_value = if old_value == u16::MAX {
+                      self.set_flag(Flag::Status(StatusFlag::Overflow), true);
+                      0
+                  } else {
+                      self.set_flag(Flag::Status(StatusFlag::Overflow), false);
+                      old_value + 1
+                  };
+
+                  self.set_memory_word(location, new_value)
+              }
+               */
+        };
+
+        format!("{instruction} ;{result_desc}")
+    }
+
+    fn step_ret(&mut self) -> String {
+        todo!()
+    }
+
+    fn step_jump(&mut self, jump: Jump, offset: i8) -> String {
         let should_jump = match jump {
             Jump::Je => self.flags.get(Flag::Status(StatusFlag::Zero)),
             Jump::Jl => {
@@ -873,67 +944,40 @@ impl Computer {
             Jump::Loop => {
                 let reg = Register::General(GeneralRegister::C, RegisterSubset::All);
                 let prev = self.get_register(&reg);
-                let new_value = if prev == 0 {
+                if prev == 0 {
                     self.set_register(&reg, u16::MAX);
-                    u16::MAX
                 } else {
                     self.set_register(&reg, prev - 1);
-                    prev - 1
                 };
-                reg_desc.push_str(&format!(
-                    " ; cx:{}->{}",
-                    Self::display_small(prev),
-                    Self::display_small(new_value)
-                ));
                 prev != 1
             }
             Jump::Loopz => {
                 let reg = Register::General(GeneralRegister::C, RegisterSubset::All);
                 let prev = self.get_register(&reg);
                 self.set_register(&reg, prev - 1);
-                reg_desc.push_str(&format!(
-                    " ; cx:{}->{}",
-                    Self::display_small(prev),
-                    Self::display_small(prev - 1)
-                ));
                 prev != 1 && self.flags.get(Flag::Status(StatusFlag::Zero))
             }
             Jump::Loopnz => {
                 let reg = Register::General(GeneralRegister::C, RegisterSubset::All);
                 let prev = self.get_register(&reg);
                 self.set_register(&reg, prev - 1);
-                reg_desc.push_str(&format!(
-                    " ; cx:{}->{}",
-                    Self::display_small(prev),
-                    Self::display_small(prev - 1)
-                ));
                 prev != 1 && !self.flags.get(Flag::Status(StatusFlag::Zero))
             }
-            Jump::Jcxz => todo!(),
+            Jump::Jcxz => {
+                let reg = Register::General(GeneralRegister::C, RegisterSubset::All);
+                self.get_register(&reg) == 0
+            }
         };
 
         if should_jump {
             self.program_counter = (self.program_counter as i32 + offset as i32) as u16;
         }
-        let ip_desc = match old_ip {
-            None => "".to_owned(),
-            Some(old_ip) => {
-                format!(
-                    "{}ip:{}->{}",
-                    if reg_desc.is_empty() { " ; " } else { " " },
-                    Self::display_small(old_ip),
-                    Self::display_small(self.program_counter)
-                )
-            }
-        };
         // In NASM, the dollar sign is an offset *without* including the bytes of the jump.
         format!(
-            "{} ${}{}{}{}",
+            "{} ${}{}",
             jump,
             if offset > 0 { "+" } else { "" },
             offset + 2,
-            reg_desc,
-            ip_desc
         )
     }
 
@@ -949,12 +993,69 @@ impl Computer {
         } else {
             None
         };
+        let old_flags = self.flags;
+        let old_registers = self.registers.clone();
+
         self.program_counter += advance as u16;
-        match instruction {
-            Instruction::Move(mov) => self.step_mov(mov, old_ip),
-            Instruction::Arithmetic(arith) => self.step_arithmetic(arith, old_ip),
-            Instruction::Jump(jump, offset) => self.step_jump(*jump, *offset, old_ip),
-            Instruction::Trivia(_) => format!("{}", instruction),
+
+        let instruction_override = match instruction {
+            Instruction::Move(mov) => {
+                self.step_mov(mov);
+                None
+            }
+            Instruction::Arithmetic(arith) => {
+                self.step_arithmetic(arith);
+                None
+            }
+            Instruction::Jump(jump, offset) => Some(self.step_jump(*jump, *offset)),
+            Instruction::Boolean(boolean) => {
+                self.step_boolean(boolean);
+                None
+            }
+            Instruction::Inc(inc) => {
+                self.step_inc(inc);
+                None
+            }
+            Instruction::Ret => {
+                self.step_ret();
+                None
+            }
+            Instruction::Trivia(_) => None,
+        };
+
+        let mut post = Vec::new();
+
+        let acc_desc = self.registers.diff(&old_registers);
+        if !acc_desc.is_empty() {
+            post.push(acc_desc);
+        }
+
+        match old_ip {
+            None => {}
+            Some(old_ip) => {
+                post.push(format!(
+                    "ip:{}->{}",
+                    display_small(old_ip),
+                    display_small(self.program_counter)
+                ));
+            }
+        }
+
+        if old_flags != self.flags {
+            post.push(format!("flags:{}->{}", old_flags, self.flags));
+        }
+
+        let post = post.join(" ");
+
+        let instruction = match instruction_override {
+            None => format!("{instruction}"),
+            Some(i) => i,
+        };
+
+        if post.is_empty() {
+            instruction
+        } else {
+            format!("{instruction} ; {post}")
         }
     }
 
@@ -968,12 +1069,7 @@ impl Computer {
         ] {
             let value = self.get_register(&Register::General(r.clone(), RegisterSubset::All));
             if value != 0 {
-                result.push_str(&format!(
-                    "{}x: {} ({})\n",
-                    r,
-                    Self::display_big(value),
-                    value
-                ))
+                result.push_str(&format!("{}x: {} ({})\n", r, display_big(value), value))
             }
         }
 
@@ -985,12 +1081,7 @@ impl Computer {
         ] {
             let value = self.get_register(&Register::Special(r.clone()));
             if value != 0 {
-                result.push_str(&format!(
-                    "{}: {} ({})\n",
-                    r,
-                    Self::display_big(value),
-                    value
-                ))
+                result.push_str(&format!("{}: {} ({})\n", r, display_big(value), value))
             }
         }
 
@@ -1002,12 +1093,7 @@ impl Computer {
         ] {
             let value = self.get_segment(r);
             if value != 0 {
-                result.push_str(&format!(
-                    "{}: {} ({})\n",
-                    r,
-                    Self::display_big(value),
-                    value
-                ));
+                result.push_str(&format!("{}: {} ({})\n", r, display_big(value), value));
             }
         }
 

@@ -2,6 +2,10 @@ use std::fmt::Display;
 
 use arbitrary::Arbitrary;
 
+use crate::boolean_instruction::{
+    BooleanInstruction, BooleanInstructionDestination, BooleanInstructionType, RegRegBoolean,
+};
+use crate::inc_instruction::IncInstruction;
 use crate::{
     arithmetic_instruction::{
         ArithmeticInstruction, ArithmeticInstructionSelect, ArithmeticOperation, MemRegArithmetic,
@@ -24,6 +28,9 @@ pub enum Instruction<InstructionOffset> {
     /// Perform arithmetic
     Arithmetic(ArithmeticInstruction),
     Jump(Jump, InstructionOffset),
+    Boolean(BooleanInstruction),
+    Inc(IncInstruction),
+    Ret,
     /// An irrelevant instruction.
     Trivia(TriviaInstruction<InstructionOffset>),
 }
@@ -34,14 +41,17 @@ where
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Instruction::Move(instruction) => f.write_fmt(format_args!("{}", instruction)),
-            Instruction::Arithmetic(op) => f.write_fmt(format_args!("{}", op)),
+            Instruction::Move(instruction) => f.write_fmt(format_args!("{instruction}")),
+            Instruction::Arithmetic(op) => f.write_fmt(format_args!("{op}")),
+            Instruction::Inc(op) => f.write_fmt(format_args!("{op}")),
             Instruction::Jump(instruction, offset) => {
-                f.write_fmt(format_args!("{} ; {}", instruction, offset))
+                f.write_fmt(format_args!("{instruction} ; {offset}"))
             }
             Instruction::Trivia(trivia) => match trivia {
                 TriviaInstruction::Label(l) => f.write_fmt(format_args!("{}:", l)),
             },
+            Instruction::Boolean(instruction) => f.write_fmt(format_args!("{instruction}")),
+            Instruction::Ret => f.write_fmt(format_args!("ret")),
         }
     }
 }
@@ -51,6 +61,9 @@ impl<'a> Instruction<&'a str> {
         match self {
             Instruction::Move(mov) => mov.to_bytes(),
             Instruction::Arithmetic(instruction) => instruction.to_bytes(),
+            Instruction::Inc(op) => op.to_bytes(),
+            Instruction::Boolean(instruction) => instruction.to_bytes(),
+            Instruction::Ret => vec![0b11000011],
             Instruction::Jump(instruction, _) => {
                 vec![
                     match instruction {
@@ -90,6 +103,9 @@ impl Instruction<i8> {
         match self {
             Instruction::Move(mov) => mov.to_bytes(),
             Instruction::Arithmetic(instruction) => instruction.to_bytes(),
+            Instruction::Inc(instruction) => instruction.to_bytes(),
+            Instruction::Boolean(instruction) => instruction.to_bytes(),
+            Instruction::Ret => vec![0b11000011],
             Instruction::Jump(instruction, offset) => {
                 let mut result = Vec::<u8>::with_capacity(2);
 
@@ -421,6 +437,27 @@ impl Instruction<i8> {
                         next as i8
                     },
                 ))
+            } else if b & 0b11111110 == 0b10000100 {
+                let is_wide = b % 2 == 1;
+                let mod_reg_rm = bytes.next().unwrap();
+                let mode = mod_reg_rm / 64;
+                let source = Register::of_id((mod_reg_rm / 8) & 0b111, is_wide);
+                let rm = mod_reg_rm & 0b111;
+                if mode == 3 {
+                    let dest = Register::of_id(rm, is_wide);
+                    Some(Instruction::Boolean(BooleanInstruction {
+                        selection: BooleanInstructionType::Test,
+                        dest: BooleanInstructionDestination::RegReg(RegRegBoolean { source, dest }),
+                    }))
+                } else {
+                    // let dest = EffectiveAddress::of_mode_rm(mode, rm, bytes);
+                    todo!()
+                }
+            } else if b == 0b11000011 {
+                Some(Instruction::Ret)
+            } else if b & 0b11111000 == 0b01000000 {
+                let reg = Register::of_id(b & 0b111, true);
+                Some(Instruction::Inc(IncInstruction::Register(reg)))
             } else {
                 panic!("Unrecognised instruction byte: {}", b)
             }
@@ -435,14 +472,18 @@ impl<A> Instruction<A> {
         match self {
             Instruction::Move(m) => m.length(),
             Instruction::Arithmetic(a) => a.length(),
+            Instruction::Inc(a) => a.length(),
+            Instruction::Boolean(b) => b.length(),
             Instruction::Jump(_, _) => 2,
             Instruction::Trivia(_) => 0,
+            Instruction::Ret => 1,
         }
     }
 }
 
 #[cfg(test)]
 mod test_instruction {
+    use crate::boolean_instruction::BooleanInstructionDestination;
     use crate::{
         arithmetic_instruction::ArithmeticInstructionSelect,
         instruction::Instruction,
@@ -464,6 +505,12 @@ mod test_instruction {
             Instruction::Arithmetic(i) => match &i.instruction {
                 ArithmeticInstructionSelect::RegisterToRegister(data) => {
                     data.source.is_wide() != data.dest.is_wide()
+                }
+                _ => false,
+            },
+            Instruction::Boolean(i) => match &i.dest {
+                BooleanInstructionDestination::RegReg(reg_reg) => {
+                    reg_reg.source.is_wide() != reg_reg.dest.is_wide()
                 }
                 _ => false,
             },
