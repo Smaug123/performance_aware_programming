@@ -578,7 +578,7 @@ fn immediate_to_memory_instruction(input: &str) -> IResult<&str, ImmediateToMemo
 fn memory_to_accumulator_instruction(input: &str) -> IResult<&str, MemoryToAccumulator> {
     map_res(
         preceded(
-            tag("mov a"),
+            preceded(multispace0, tag("mov a")),
             tuple((
                 terminated(alt((char('h'), char('x'))), argument_sep),
                 bracketed(literal_u16),
@@ -967,7 +967,7 @@ mod test_assembly {
         assembly::instruction,
         effective_address::{EffectiveAddress, WithOffset},
         instruction::Instruction,
-        move_instruction::{ImmediateToMemory, MoveInstruction},
+        move_instruction::{ImmediateToMemory, MemoryToAccumulator, MoveInstruction},
         register::{GeneralRegister, Register, RegisterSubset},
     };
 
@@ -1003,6 +1003,42 @@ mod test_assembly {
                 )
             })
         )
+    }
+
+    #[test]
+    fn mov_acc_parse() {
+        let (remaining, parsed) = instruction("mov ax, [16]").unwrap();
+        assert_eq!(remaining, "");
+        assert_eq!(
+            parsed,
+            Instruction::Move(MoveInstruction::MemoryToAccumulator(MemoryToAccumulator {
+                address: 16,
+                is_wide: true
+            }))
+        )
+    }
+
+    #[test]
+    fn mov_acc_parse_program() {
+        let (remaining, parsed) = program("bits 16\nmov ax, [2555]\nmov ax, [16]").unwrap();
+        assert_eq!(remaining, "");
+        assert_eq!(parsed.bits, 16);
+        let parsed = parsed.instructions;
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(
+            parsed[0].clone(),
+            Instruction::Move(MoveInstruction::MemoryToAccumulator(MemoryToAccumulator {
+                address: 2555,
+                is_wide: true
+            }))
+        );
+        assert_eq!(
+            parsed[1].clone(),
+            Instruction::Move(MoveInstruction::MemoryToAccumulator(MemoryToAccumulator {
+                address: 16,
+                is_wide: true
+            }))
+        );
     }
 
     #[test]
