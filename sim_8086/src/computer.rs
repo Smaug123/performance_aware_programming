@@ -482,7 +482,7 @@ impl Computer {
         }
     }
 
-    fn step_mov(&mut self, instruction: &MoveInstruction, old_ip: Option<u16>) -> String {
+    fn step_mov(&mut self, instruction: &MoveInstruction) -> String {
         let preamble = format!("{}", instruction);
         let description = match &instruction {
             MoveInstruction::RegRegMove(mov) => {
@@ -573,16 +573,7 @@ impl Computer {
                 self.set_segment(mov.dest, value)
             }
         };
-        let ip_desc = match old_ip {
-            None => "".to_owned(),
-            Some(old_ip) => format!(
-                "{}ip:{}->{}",
-                if description.is_empty() { "" } else { " " },
-                Self::display_small(old_ip),
-                Self::display_small(self.program_counter)
-            ),
-        };
-        format!("{} ; {}{}", preamble, description, ip_desc)
+        format!("{} ; {}", preamble, description)
     }
 
     /// Returns true if the operation overflowed, and true if the value is supposed
@@ -712,12 +703,7 @@ impl Computer {
         parity % 2 == 1
     }
 
-    fn step_arithmetic(
-        &mut self,
-        instruction: &ArithmeticInstruction,
-        old_ip: Option<u16>,
-    ) -> String {
-        let old_flags = self.flags;
+    fn step_arithmetic(&mut self, instruction: &ArithmeticInstruction) -> String {
         let (source, old_value, new_value, flags) = match &instruction.instruction {
             ArithmeticInstructionSelect::RegisterToRegister(instr) => {
                 let current_value = self.get_register(&instr.dest);
@@ -805,21 +791,6 @@ impl Computer {
             Flag::Status(StatusFlag::Parity),
             !Self::is_odd_parity(new_value % 256),
         );
-        let flags_desc = if old_flags == self.flags {
-            "".to_owned()
-        } else {
-            format!(" flags:{}->{}", old_flags, self.flags)
-        };
-        let ip_desc = match old_ip {
-            None => "".to_owned(),
-            Some(old_ip) => {
-                format!(
-                    " ip:{}->{}",
-                    Self::display_small(old_ip),
-                    Self::display_small(self.program_counter)
-                )
-            }
-        };
         let result_desc = if flags.should_write && old_value != new_value {
             format!(
                 " {}:{}->{}",
@@ -830,25 +801,14 @@ impl Computer {
         } else {
             "".to_owned()
         };
-        format!("{instruction} ;{result_desc}{ip_desc}{flags_desc}")
+        format!("{instruction} ;{result_desc}")
     }
 
-    fn step_boolean(&mut self, _instruction: &BooleanInstruction, _old_ip: Option<u16>) -> String {
+    fn step_boolean(&mut self, _instruction: &BooleanInstruction) -> String {
         todo!()
     }
 
-    fn step_inc(&mut self, instruction: &IncInstruction, old_ip: Option<u16>) -> String {
-        let old_flags = self.flags;
-        let ip_desc = match old_ip {
-            None => "".to_owned(),
-            Some(old_ip) => {
-                format!(
-                    " ip:{}->{}",
-                    Self::display_small(old_ip),
-                    Self::display_small(self.program_counter)
-                )
-            }
-        };
+    fn step_inc(&mut self, instruction: &IncInstruction) -> String {
         let result_desc = match instruction {
             IncInstruction::Register(reg) => {
                 let old_value = self.get_register(reg);
@@ -877,20 +837,14 @@ impl Computer {
             }
         };
 
-        let flags_desc = if old_flags == self.flags {
-            "".to_owned()
-        } else {
-            format!(" flags:{}->{}", old_flags, self.flags)
-        };
-
-        format!("{instruction} ;{result_desc}{ip_desc}{flags_desc}")
+        format!("{instruction} ;{result_desc}")
     }
 
-    fn step_ret(&mut self, _old_ip: Option<u16>) -> String {
+    fn step_ret(&mut self) -> String {
         todo!()
     }
 
-    fn step_jump(&mut self, jump: Jump, offset: i8, old_ip: Option<u16>) -> String {
+    fn step_jump(&mut self, jump: Jump, offset: i8) -> String {
         let mut reg_desc = "".to_owned();
         let should_jump = match jump {
             Jump::Je => self.flags.get(Flag::Status(StatusFlag::Zero)),
@@ -977,25 +931,13 @@ impl Computer {
         if should_jump {
             self.program_counter = (self.program_counter as i32 + offset as i32) as u16;
         }
-        let ip_desc = match old_ip {
-            None => "".to_owned(),
-            Some(old_ip) => {
-                format!(
-                    "{}ip:{}->{}",
-                    if reg_desc.is_empty() { " ; " } else { " " },
-                    Self::display_small(old_ip),
-                    Self::display_small(self.program_counter)
-                )
-            }
-        };
         // In NASM, the dollar sign is an offset *without* including the bytes of the jump.
         format!(
-            "{} ${}{}{}{}",
+            "{} ${}{}{}",
             jump,
             if offset > 0 { "+" } else { "" },
             offset + 2,
             reg_desc,
-            ip_desc
         )
     }
 
@@ -1011,16 +953,36 @@ impl Computer {
         } else {
             None
         };
+        let old_flags = self.flags;
         self.program_counter += advance as u16;
-        match instruction {
-            Instruction::Move(mov) => self.step_mov(mov, old_ip),
-            Instruction::Arithmetic(arith) => self.step_arithmetic(arith, old_ip),
-            Instruction::Jump(jump, offset) => self.step_jump(*jump, *offset, old_ip),
-            Instruction::Boolean(boolean) => self.step_boolean(boolean, old_ip),
-            Instruction::Inc(inc) => self.step_inc(inc, old_ip),
-            Instruction::Ret => self.step_ret(old_ip),
+        let step_desc = match instruction {
+            Instruction::Move(mov) => self.step_mov(mov),
+            Instruction::Arithmetic(arith) => self.step_arithmetic(arith),
+            Instruction::Jump(jump, offset) => self.step_jump(*jump, *offset),
+            Instruction::Boolean(boolean) => self.step_boolean(boolean),
+            Instruction::Inc(inc) => self.step_inc(inc),
+            Instruction::Ret => self.step_ret(),
             Instruction::Trivia(_) => format!("{}", instruction),
-        }
+        };
+
+        let flags_desc = if old_flags == self.flags {
+            "".to_owned()
+        } else {
+            format!(" flags:{}->{}", old_flags, self.flags)
+        };
+        let ip_desc = match old_ip {
+            None => "".to_owned(),
+            Some(old_ip) => {
+                format!(
+                    "ip:{}->{}",
+                    //if reg_desc.is_empty() { " ; " } else { " " },
+                    Self::display_small(old_ip),
+                    Self::display_small(self.program_counter)
+                )
+            }
+        };
+
+        format!("{}{}{}", step_desc, ip_desc, flags_desc)
     }
 
     pub fn dump_register_state(&self) -> String {
