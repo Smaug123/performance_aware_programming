@@ -108,6 +108,9 @@ impl EffectiveAddress {
     where
         I: Iterator<Item = u8>,
     {
+        if mode == 3 {
+            panic!("we don't handle this case, you need to do it manually to get a register")
+        }
         let source_dest = if rm % 2 == 0 {
             SourceDest::Source
         } else {

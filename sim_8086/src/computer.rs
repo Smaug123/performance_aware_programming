@@ -1,5 +1,7 @@
 use std::fmt::Display;
 
+use crate::boolean_instruction::BooleanInstruction;
+use crate::inc_instruction::IncInstruction;
 use crate::{
     arithmetic_instruction::{
         ArithmeticInstruction, ArithmeticInstructionSelect, ArithmeticOperation,
@@ -831,6 +833,63 @@ impl Computer {
         format!("{instruction} ;{result_desc}{ip_desc}{flags_desc}")
     }
 
+    fn step_boolean(&mut self, _instruction: &BooleanInstruction, _old_ip: Option<u16>) -> String {
+        todo!()
+    }
+
+    fn step_inc(&mut self, instruction: &IncInstruction, old_ip: Option<u16>) -> String {
+        let old_flags = self.flags;
+        let ip_desc = match old_ip {
+            None => "".to_owned(),
+            Some(old_ip) => {
+                format!(
+                    " ip:{}->{}",
+                    Self::display_small(old_ip),
+                    Self::display_small(self.program_counter)
+                )
+            }
+        };
+        let result_desc = match instruction {
+            IncInstruction::Register(reg) => {
+                let old_value = self.get_register(reg);
+                let new_value = if old_value == u16::MAX {
+                    self.set_flag(Flag::Status(StatusFlag::Overflow), true);
+                    0
+                } else {
+                    self.set_flag(Flag::Status(StatusFlag::Overflow), false);
+                    old_value + 1
+                };
+
+                self.set_register(reg, new_value)
+            }
+            IncInstruction::Memory(addr) => {
+                let location = self.resolve_eaddr(addr);
+                let old_value = self.get_memory_word(location);
+                let new_value = if old_value == u16::MAX {
+                    self.set_flag(Flag::Status(StatusFlag::Overflow), true);
+                    0
+                } else {
+                    self.set_flag(Flag::Status(StatusFlag::Overflow), false);
+                    old_value + 1
+                };
+
+                self.set_memory_word(location, new_value)
+            }
+        };
+
+        let flags_desc = if old_flags == self.flags {
+            "".to_owned()
+        } else {
+            format!(" flags:{}->{}", old_flags, self.flags)
+        };
+
+        format!("{instruction} ;{result_desc}{ip_desc}{flags_desc}")
+    }
+
+    fn step_ret(&mut self, _old_ip: Option<u16>) -> String {
+        todo!()
+    }
+
     fn step_jump(&mut self, jump: Jump, offset: i8, old_ip: Option<u16>) -> String {
         let mut reg_desc = "".to_owned();
         let should_jump = match jump {
@@ -909,7 +968,10 @@ impl Computer {
                 ));
                 prev != 1 && !self.flags.get(Flag::Status(StatusFlag::Zero))
             }
-            Jump::Jcxz => todo!(),
+            Jump::Jcxz => {
+                let reg = Register::General(GeneralRegister::C, RegisterSubset::All);
+                self.get_register(&reg) == 0
+            }
         };
 
         if should_jump {
@@ -954,6 +1016,9 @@ impl Computer {
             Instruction::Move(mov) => self.step_mov(mov, old_ip),
             Instruction::Arithmetic(arith) => self.step_arithmetic(arith, old_ip),
             Instruction::Jump(jump, offset) => self.step_jump(*jump, *offset, old_ip),
+            Instruction::Boolean(boolean) => self.step_boolean(boolean, old_ip),
+            Instruction::Inc(inc) => self.step_inc(inc, old_ip),
+            Instruction::Ret => self.step_ret(old_ip),
             Instruction::Trivia(_) => format!("{}", instruction),
         }
     }
