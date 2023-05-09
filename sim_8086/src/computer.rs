@@ -2,6 +2,7 @@ use std::fmt::Display;
 
 use crate::boolean_instruction::BooleanInstruction;
 use crate::inc_instruction::IncInstruction;
+use crate::logic_instruction::LogicInstruction;
 use crate::{
     arithmetic_instruction::{
         ArithmeticInstruction, ArithmeticInstructionSelect, ArithmeticOperation,
@@ -866,40 +867,32 @@ impl Computer {
         todo!()
     }
 
-    fn step_inc(&mut self, instruction: &IncInstruction) -> String {
-        let result_desc = match instruction {
-            IncInstruction::Register(reg) => {
-                let old_value = self.get_register(reg);
-                let new_value = if old_value == u16::MAX {
-                    self.set_flag(Flag::Status(StatusFlag::Overflow), true);
-                    0
-                } else {
-                    self.set_flag(Flag::Status(StatusFlag::Overflow), false);
-                    old_value + 1
-                };
-
-                self.set_register(reg, new_value)
-            } /*
-              IncInstruction::Memory(addr) => {
-                  let location = self.resolve_eaddr(addr);
-                  let old_value = self.get_memory_word(location);
-                  let new_value = if old_value == u16::MAX {
-                      self.set_flag(Flag::Status(StatusFlag::Overflow), true);
-                      0
-                  } else {
-                      self.set_flag(Flag::Status(StatusFlag::Overflow), false);
-                      old_value + 1
-                  };
-
-                  self.set_memory_word(location, new_value)
-              }
-               */
+    fn step_inc(&mut self, instruction: &IncInstruction) {
+        let old_value = self.get_register(&instruction.target);
+        let new_value = if instruction.is_inc {
+            if old_value == u16::MAX {
+                self.set_flag(Flag::Status(StatusFlag::Overflow), true);
+                0
+            } else {
+                self.set_flag(Flag::Status(StatusFlag::Overflow), false);
+                old_value + 1
+            }
+        } else if old_value == 0 {
+            self.set_flag(Flag::Status(StatusFlag::Overflow), true);
+            u16::MAX
+        } else {
+            self.set_flag(Flag::Status(StatusFlag::Overflow), false);
+            old_value - 1
         };
 
-        format!("{instruction} ;{result_desc}")
+        self.set_register(&instruction.target, new_value);
     }
 
     fn step_ret(&mut self) -> String {
+        todo!()
+    }
+
+    fn step_logic(&mut self, _instruction: &LogicInstruction) {
         todo!()
     }
 
@@ -1018,6 +1011,10 @@ impl Computer {
             }
             Instruction::Ret => {
                 self.step_ret();
+                None
+            }
+            Instruction::Logic(instruction) => {
+                self.step_logic(instruction);
                 None
             }
             Instruction::Trivia(_) => None,

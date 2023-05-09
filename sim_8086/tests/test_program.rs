@@ -31,6 +31,8 @@ mod test_program {
             (Instruction::Inc(_), _) => false,
             (Instruction::Ret, Instruction::Ret) => true,
             (Instruction::Ret, _) => false,
+            (Instruction::Logic(i1), Instruction::Logic(i2)) => i1 == i2,
+            (Instruction::Logic(_), _) => false,
             (Instruction::Trivia(_), Instruction::Trivia(_)) => true,
             (Instruction::Trivia(_), _) => false,
         }
@@ -666,7 +668,6 @@ mod test_program {
         test_disassembler(asm, bytecode)
     }
 
-    /*
     #[test]
     fn test_quad_scalar_ptr_parser() {
         let input_asm =
@@ -702,6 +703,4 @@ mod test_program {
             include_str!("../../computer_enhance/perfaware/part1/listing_0064_TreeScalarPtr.asm");
         test_disassembler(asm, bytecode)
     }
-
-     */
 }
