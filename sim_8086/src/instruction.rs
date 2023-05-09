@@ -15,8 +15,8 @@ use crate::{
     effective_address::EffectiveAddress,
     jump_instruction::Jump,
     move_instruction::{
-        AccumulatorToMemory, ImmediateToMemory, ImmediateToRegister, MemRegMove,
-        MemoryToAccumulator, MemoryToSegment, MoveInstruction, RegMemMove, RegRegMove,
+        AccumulatorToMemory, ImmediateToMemory, ImmediateToRegister, MemToRegMove,
+        MemoryToAccumulator, MemoryToSegment, MoveInstruction, RegRegMove, RegToMemMove,
         RegisterToSegment, SegmentToMemory, SegmentToRegister,
     },
     register::{Register, SegmentRegister},
@@ -185,15 +185,19 @@ impl Instruction<i8> {
                     } else {
                         let mem_location = EffectiveAddress::of_mode_rm(mode, rm, bytes);
                         if d == 0 {
-                            Some(Instruction::Move(MoveInstruction::RegMemMove(RegMemMove {
-                                source: reg,
-                                dest: mem_location,
-                            })))
+                            Some(Instruction::Move(MoveInstruction::RegMemMove(
+                                RegToMemMove {
+                                    source: reg,
+                                    dest: mem_location,
+                                },
+                            )))
                         } else {
-                            Some(Instruction::Move(MoveInstruction::MemRegMove(MemRegMove {
-                                dest: reg,
-                                source: mem_location,
-                            })))
+                            Some(Instruction::Move(MoveInstruction::MemRegMove(
+                                MemToRegMove {
+                                    dest: reg,
+                                    source: mem_location,
+                                },
+                            )))
                         }
                     }
                 } else {
@@ -556,7 +560,16 @@ impl<A> Instruction<A> {
 
     /// Returns a description (possibly empty) of how this computation was performed.
     pub fn clock_count(&self) -> (u32, String) {
-        todo!()
+        match self {
+            Instruction::Move(instr) => instr.clock_count(),
+            Instruction::Arithmetic(instr) => instr.clock_count(),
+            Instruction::Jump(_, _) => todo!(),
+            Instruction::Boolean(instr) => instr.clock_count(),
+            Instruction::Logic(instr) => instr.clock_count(),
+            Instruction::Inc(instr) => instr.clock_count(),
+            Instruction::Ret => (8, "".to_owned()),
+            Instruction::Trivia(_) => (0, "".to_owned()),
+        }
     }
 }
 

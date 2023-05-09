@@ -27,4 +27,12 @@ impl IncInstruction {
     pub fn length(&self) -> u8 {
         1
     }
+
+    pub fn clock_count(&self) -> (u32, String) {
+        if self.target.is_wide() {
+            (2, "".to_owned())
+        } else {
+            (3, "".to_owned())
+        }
+    }
 }
