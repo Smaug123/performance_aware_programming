@@ -1,7 +1,6 @@
 #[cfg(test)]
 mod test_computer {
     use sim_8086::{computer::Computer, program::Program};
-    use std::ops::Index;
     use std::str;
 
     fn clean_trace(s: &str) -> String {
@@ -24,7 +23,7 @@ mod test_computer {
         s
     }
 
-    fn test_sim<T>(input_bytecode: T, expected_trace: &str, display_ip: bool)
+    fn test_sim<T>(input_bytecode: T, expected_trace: &str, display_ip: bool, show_clock: bool)
     where
         T: AsRef<[u8]>,
     {
@@ -52,7 +51,7 @@ mod test_computer {
                     panic!("landed in middle of instruction")
                 }
                 Some(instruction) => {
-                    trace.push(computer.step(instruction, display_ip));
+                    trace.push(computer.step(instruction, display_ip, show_clock));
                 }
             }
         }
@@ -91,7 +90,7 @@ mod test_computer {
             include_bytes!("../../computer_enhance/perfaware/part1/listing_0043_immediate_movs");
         let expected_trace =
             include_str!("../../computer_enhance/perfaware/part1/listing_0043_immediate_movs.txt");
-        test_sim(input_bytecode, expected_trace, false)
+        test_sim(input_bytecode, expected_trace, false, false)
     }
 
     #[test]
@@ -100,7 +99,7 @@ mod test_computer {
             include_bytes!("../../computer_enhance/perfaware/part1/listing_0044_register_movs");
         let expected_trace =
             include_str!("../../computer_enhance/perfaware/part1/listing_0044_register_movs.txt");
-        test_sim(input_bytecode, expected_trace, false)
+        test_sim(input_bytecode, expected_trace, false, false)
     }
 
     #[test]
@@ -111,7 +110,7 @@ mod test_computer {
         let expected_trace = include_str!(
             "../../computer_enhance/perfaware/part1/listing_0045_challenge_register_movs.txt"
         );
-        test_sim(input_bytecode, expected_trace, false)
+        test_sim(input_bytecode, expected_trace, false, false)
     }
 
     #[test]
@@ -120,7 +119,7 @@ mod test_computer {
             include_bytes!("../../computer_enhance/perfaware/part1/listing_0046_add_sub_cmp");
         let expected_trace =
             include_str!("../../computer_enhance/perfaware/part1/listing_0046_add_sub_cmp.txt");
-        test_sim(input_bytecode, expected_trace, false)
+        test_sim(input_bytecode, expected_trace, false, false)
     }
 
     #[test]
@@ -129,7 +128,7 @@ mod test_computer {
             include_bytes!("../../computer_enhance/perfaware/part1/listing_0047_challenge_flags");
         let expected_trace =
             include_str!("../../computer_enhance/perfaware/part1/listing_0047_challenge_flags.txt");
-        test_sim(input_bytecode, expected_trace, false)
+        test_sim(input_bytecode, expected_trace, false, false)
     }
 
     #[test]
@@ -138,7 +137,7 @@ mod test_computer {
             include_bytes!("../../computer_enhance/perfaware/part1/listing_0048_ip_register");
         let expected_trace =
             include_str!("../../computer_enhance/perfaware/part1/listing_0048_ip_register.txt");
-        test_sim(input_bytecode, expected_trace, true)
+        test_sim(input_bytecode, expected_trace, true, false)
     }
 
     #[test]
@@ -148,7 +147,7 @@ mod test_computer {
         let expected_trace = include_str!(
             "../../computer_enhance/perfaware/part1/listing_0049_conditional_jumps.txt"
         );
-        test_sim(input_bytecode, expected_trace, true)
+        test_sim(input_bytecode, expected_trace, true, false)
     }
 
     #[test]
@@ -157,7 +156,7 @@ mod test_computer {
             include_bytes!("../../computer_enhance/perfaware/part1/listing_0050_challenge_jumps");
         let expected_trace =
             include_str!("../../computer_enhance/perfaware/part1/listing_0050_challenge_jumps.txt");
-        test_sim(input_bytecode, expected_trace, true)
+        test_sim(input_bytecode, expected_trace, true, false)
     }
 
     #[test]
@@ -166,7 +165,7 @@ mod test_computer {
             include_bytes!("../../computer_enhance/perfaware/part1/listing_0051_memory_mov");
         let expected_trace =
             include_str!("../../computer_enhance/perfaware/part1/listing_0051_memory_mov.txt");
-        test_sim(input_bytecode, expected_trace, true)
+        test_sim(input_bytecode, expected_trace, true, false)
     }
 
     #[test]
@@ -175,7 +174,7 @@ mod test_computer {
             include_bytes!("../../computer_enhance/perfaware/part1/listing_0052_memory_add_loop");
         let expected_trace =
             include_str!("../../computer_enhance/perfaware/part1/listing_0052_memory_add_loop.txt");
-        test_sim(input_bytecode, expected_trace, true)
+        test_sim(input_bytecode, expected_trace, true, false)
     }
 
     #[test]
@@ -186,7 +185,7 @@ mod test_computer {
         let expected_trace = include_str!(
             "../../computer_enhance/perfaware/part1/listing_0053_add_loop_challenge.txt"
         );
-        test_sim(input_bytecode, expected_trace, true)
+        test_sim(input_bytecode, expected_trace, true, false)
     }
 
     #[test]
@@ -195,7 +194,7 @@ mod test_computer {
             include_bytes!("../../computer_enhance/perfaware/part1/listing_0054_draw_rectangle");
         let expected_trace =
             include_str!("../../computer_enhance/perfaware/part1/listing_0054_draw_rectangle.txt");
-        test_sim(input_bytecode, expected_trace, true)
+        test_sim(input_bytecode, expected_trace, true, false)
     }
 
     #[test]
@@ -206,7 +205,7 @@ mod test_computer {
         let expected_trace = include_str!(
             "../../computer_enhance/perfaware/part1/listing_0055_challenge_rectangle.txt"
         );
-        test_sim(input_bytecode, expected_trace, true)
+        test_sim(input_bytecode, expected_trace, true, false)
     }
 
     #[test]
@@ -216,7 +215,7 @@ mod test_computer {
         let expected_trace = include_str!(
             "../../computer_enhance/perfaware/part1/listing_0056_estimating_cycles.txt"
         );
-        test_sim(input_bytecode, expected_trace, true)
+        test_sim(input_bytecode, expected_trace, true, true)
     }
 
     #[test]
@@ -226,7 +225,7 @@ mod test_computer {
         let expected_trace = include_str!(
             "../../computer_enhance/perfaware/part1/listing_0057_challenge_cycles.txt"
         );
-        test_sim(input_bytecode, expected_trace, true)
+        test_sim(input_bytecode, expected_trace, true, true)
     }
 
     #[test]
@@ -235,7 +234,7 @@ mod test_computer {
             include_bytes!("../../computer_enhance/perfaware/part1/listing_0059_SingleScalar");
         let expected_trace =
             include_str!("../../computer_enhance/perfaware/part1/listing_0059_SingleScalar.txt");
-        test_sim(input_bytecode, expected_trace, true)
+        test_sim(input_bytecode, expected_trace, true, true)
     }
 
     #[test]
@@ -244,7 +243,7 @@ mod test_computer {
             include_bytes!("../../computer_enhance/perfaware/part1/listing_0060_Unroll2Scalar");
         let expected_trace =
             include_str!("../../computer_enhance/perfaware/part1/listing_0060_Unroll2Scalar.txt");
-        test_sim(input_bytecode, expected_trace, true)
+        test_sim(input_bytecode, expected_trace, true, true)
     }
 
     #[test]
@@ -253,7 +252,7 @@ mod test_computer {
             include_bytes!("../../computer_enhance/perfaware/part1/listing_0061_DualScalar");
         let expected_trace =
             include_str!("../../computer_enhance/perfaware/part1/listing_0061_DualScalar.txt");
-        test_sim(input_bytecode, expected_trace, true)
+        test_sim(input_bytecode, expected_trace, true, true)
     }
 
     #[test]
@@ -262,7 +261,7 @@ mod test_computer {
             include_bytes!("../../computer_enhance/perfaware/part1/listing_0062_QuadScalar");
         let expected_trace =
             include_str!("../../computer_enhance/perfaware/part1/listing_0062_QuadScalar.txt");
-        test_sim(input_bytecode, expected_trace, true)
+        test_sim(input_bytecode, expected_trace, true, true)
     }
 
     #[test]
@@ -271,7 +270,7 @@ mod test_computer {
             include_bytes!("../../computer_enhance/perfaware/part1/listing_0063_QuadScalarPtr");
         let expected_trace =
             include_str!("../../computer_enhance/perfaware/part1/listing_0063_QuadScalarPtr.txt");
-        test_sim(input_bytecode, expected_trace, true)
+        test_sim(input_bytecode, expected_trace, true, true)
     }
 
     #[test]
@@ -280,6 +279,6 @@ mod test_computer {
             include_bytes!("../../computer_enhance/perfaware/part1/listing_0064_TreeScalarPtr");
         let expected_trace =
             include_str!("../../computer_enhance/perfaware/part1/listing_0064_TreeScalarPtr.txt");
-        test_sim(input_bytecode, expected_trace, true)
+        test_sim(input_bytecode, expected_trace, true, true)
     }
 }

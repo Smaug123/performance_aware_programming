@@ -553,6 +553,11 @@ impl<A> Instruction<A> {
             Instruction::Ret => 1,
         }
     }
+
+    /// Returns a description (possibly empty) of how this computation was performed.
+    pub fn clock_count(&self) -> (u32, String) {
+        todo!()
+    }
 }
 
 #[cfg(test)]

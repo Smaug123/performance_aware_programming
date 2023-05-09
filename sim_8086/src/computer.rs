@@ -249,6 +249,7 @@ pub struct Computer {
     registers: Registers,
     #[allow(dead_code)]
     memory: [u8; 65536],
+    clocks_executed: u32,
 }
 
 struct ResultFlags {
@@ -279,6 +280,7 @@ impl Computer {
             },
             flags: Flags { fields: 0 },
             program_counter: 0,
+            clocks_executed: 0,
         }
     }
 
@@ -993,7 +995,12 @@ impl Computer {
     }
 
     /// Returns a string representation of what happened.
-    pub fn step(&mut self, instruction: &Instruction<i8>, display_ip: bool) -> String {
+    pub fn step(
+        &mut self,
+        instruction: &Instruction<i8>,
+        display_ip: bool,
+        show_clock: bool,
+    ) -> String {
         let advance = instruction.length();
         let old_ip = if display_ip {
             Some(self.program_counter)
@@ -1034,7 +1041,22 @@ impl Computer {
             Instruction::Trivia(_) => None,
         };
 
-        let mut post = Vec::new();
+        let mut post: Vec<String> = Vec::new();
+
+        let (clock_count, clock_description) = instruction.clock_count();
+        if show_clock {
+            post.push("Clocks:".to_owned());
+            post.push(format!(
+                "+{} = {}",
+                clock_count,
+                self.clocks_executed + clock_count
+            ));
+            if !clock_description.is_empty() {
+                post.push(format!("({})", clock_description))
+            }
+            post.push("|".to_owned());
+        }
+        self.clocks_executed += clock_count;
 
         let acc_desc = self.registers.diff(&old_registers);
         if !acc_desc.is_empty() {
