@@ -6,6 +6,7 @@ use crate::boolean_instruction::{
     BooleanInstruction, BooleanInstructionDestination, BooleanInstructionType, RegRegBoolean,
 };
 use crate::inc_instruction::IncInstruction;
+use crate::logic_instruction::{LogicInstruction, LogicInstructionType, LogicTarget};
 use crate::{
     arithmetic_instruction::{
         ArithmeticInstruction, ArithmeticInstructionSelect, ArithmeticOperation, MemRegArithmetic,
@@ -29,6 +30,7 @@ pub enum Instruction<InstructionOffset> {
     Arithmetic(ArithmeticInstruction),
     Jump(Jump, InstructionOffset),
     Boolean(BooleanInstruction),
+    Logic(LogicInstruction),
     Inc(IncInstruction),
     Ret,
     /// An irrelevant instruction.
@@ -52,6 +54,7 @@ where
             },
             Instruction::Boolean(instruction) => f.write_fmt(format_args!("{instruction}")),
             Instruction::Ret => f.write_fmt(format_args!("ret")),
+            Instruction::Logic(instruction) => f.write_fmt(format_args!("{instruction}")),
         }
     }
 }
@@ -92,6 +95,8 @@ impl<'a> Instruction<&'a str> {
                     0,
                 ]
             }
+
+            Instruction::Logic(instruction) => instruction.to_bytes(),
 
             Instruction::Trivia(_) => vec![],
         }
@@ -141,6 +146,8 @@ impl Instruction<i8> {
                 });
                 result
             }
+
+            Instruction::Logic(instruction) => instruction.to_bytes(),
 
             Instruction::Trivia(_) => vec![],
         }
@@ -455,9 +462,75 @@ impl Instruction<i8> {
                 }
             } else if b == 0b11000011 {
                 Some(Instruction::Ret)
-            } else if b & 0b11111000 == 0b01000000 {
+            } else if b & 0b11110000 == 0b01000000 {
                 let reg = Register::of_id(b & 0b111, true);
-                Some(Instruction::Inc(IncInstruction::Register(reg)))
+                let is_inc = (b / 8) % 2 == 0;
+                Some(Instruction::Inc(IncInstruction {
+                    target: reg,
+                    is_inc,
+                }))
+            } else if b & 0b11111110 == 0b11110110 {
+                let is_wide = b % 2 == 0;
+                let mod_instr_rm = bytes.next().unwrap();
+                let rm = mod_instr_rm % 8;
+                let mode = mod_instr_rm / 64;
+                let op = match (mod_instr_rm / 8) % 8 {
+                    2 => LogicInstructionType::Not,
+                    op => panic!("Unexpected instruction type in NOT: {}", op),
+                };
+
+                let instruction = if mode == 3 {
+                    let target = Register::of_id(rm, is_wide);
+                    LogicInstruction {
+                        op,
+                        amount_from_cl: false,
+                        target: LogicTarget::Register(target),
+                        is_wide,
+                    }
+                } else {
+                    let dest = EffectiveAddress::of_mode_rm(mode, rm, bytes);
+                    LogicInstruction {
+                        op,
+                        amount_from_cl: false,
+                        target: LogicTarget::Address(dest),
+                        is_wide,
+                    }
+                };
+                Some(Instruction::Logic(instruction))
+            } else if b & 0b11111100 == 0b11010000 {
+                let amount_from_cl = (b / 2) % 2 == 1;
+                let is_wide = b % 2 == 1;
+                let mod_instr_rm = bytes.next().unwrap();
+                let rm = mod_instr_rm % 8;
+                let mode = mod_instr_rm / 64;
+                let op = match (mod_instr_rm / 8) % 8 {
+                    0 => LogicInstructionType::Rol,
+                    1 => LogicInstructionType::Ror,
+                    2 => LogicInstructionType::Rcl,
+                    3 => LogicInstructionType::Rcr,
+                    4 => LogicInstructionType::Shl,
+                    5 => LogicInstructionType::Shr,
+                    7 => LogicInstructionType::Sar,
+                    op => panic!("Unexpected instruction type: {}", op),
+                };
+                let instruction = if mode == 3 {
+                    let target = Register::of_id(rm, is_wide);
+                    LogicInstruction {
+                        op,
+                        amount_from_cl,
+                        target: LogicTarget::Register(target),
+                        is_wide,
+                    }
+                } else {
+                    let dest = EffectiveAddress::of_mode_rm(mode, rm, bytes);
+                    LogicInstruction {
+                        op,
+                        amount_from_cl,
+                        target: LogicTarget::Address(dest),
+                        is_wide,
+                    }
+                };
+                Some(Instruction::Logic(instruction))
             } else {
                 panic!("Unrecognised instruction byte: {}", b)
             }
@@ -476,6 +549,7 @@ impl<A> Instruction<A> {
             Instruction::Boolean(b) => b.length(),
             Instruction::Jump(_, _) => 2,
             Instruction::Trivia(_) => 0,
+            Instruction::Logic(a) => a.length(),
             Instruction::Ret => 1,
         }
     }

@@ -15,6 +15,7 @@ use crate::boolean_instruction::{
     BooleanInstruction, BooleanInstructionDestination, BooleanInstructionType, RegRegBoolean,
 };
 use crate::inc_instruction::IncInstruction;
+use crate::logic_instruction::{LogicInstruction, LogicInstructionType, LogicTarget};
 use crate::{
     arithmetic_expression::{ArithmeticExpression, Token},
     arithmetic_instruction::{
@@ -899,14 +900,77 @@ fn move_instruction(input: &str) -> IResult<&str, MoveInstruction> {
 }
 
 fn inc_instruction(input: &str) -> IResult<&str, IncInstruction> {
-    preceded(
-        ws(tag("inc ")),
-        //alt((
-        //map_res(effective_address, |(_, addr)| {
-        //    Ok::<_, ()>(IncInstruction::Memory(addr))
-        //}),
-        map_res(register, |reg| Ok::<_, ()>(IncInstruction::Register(reg))),
-        //)),
+    alt((
+        preceded(
+            ws(tag("inc ")),
+            map_res(register, |reg| {
+                Ok::<_, ()>(IncInstruction {
+                    target: reg,
+                    is_inc: true,
+                })
+            }),
+        ),
+        preceded(
+            ws(tag("dec ")),
+            map_res(register, |reg| {
+                Ok::<_, ()>(IncInstruction {
+                    target: reg,
+                    is_inc: false,
+                })
+            }),
+        ),
+    ))(input)
+}
+
+fn logic_instruction_type(input: &str) -> IResult<&str, LogicInstructionType> {
+    alt((
+        map_res(tag("not"), |_| Ok::<_, ()>(LogicInstructionType::Not)),
+        map_res(tag("shl"), |_| Ok::<_, ()>(LogicInstructionType::Shl)),
+        map_res(tag("shr"), |_| Ok::<_, ()>(LogicInstructionType::Shr)),
+        map_res(tag("sar"), |_| Ok::<_, ()>(LogicInstructionType::Sar)),
+        map_res(tag("rol"), |_| Ok::<_, ()>(LogicInstructionType::Rol)),
+        map_res(tag("ror"), |_| Ok::<_, ()>(LogicInstructionType::Ror)),
+        map_res(tag("rcl"), |_| Ok::<_, ()>(LogicInstructionType::Rcl)),
+        map_res(tag("rcr"), |_| Ok::<_, ()>(LogicInstructionType::Rcr)),
+    ))(input)
+}
+
+fn logic_instruction(input: &str) -> IResult<&str, LogicInstruction> {
+    map_res(
+        tuple((
+            ws(logic_instruction_type),
+            alt((
+                map_res(register, |reg| {
+                    Ok::<_, ()>((LogicTarget::Register(reg), None))
+                }),
+                map_res(effective_address, |(tag, addr)| {
+                    Ok::<_, ()>((LogicTarget::Address(addr), Some(tag)))
+                }),
+            )),
+            preceded(
+                argument_sep,
+                alt((
+                    map_res(tag("1"), |_| Ok::<_, ()>(false)),
+                    map_res(tag("cl"), |_| Ok::<_, ()>(true)),
+                )),
+            ),
+        )),
+        |(instruction, (dest, tag), amount)| {
+            Ok::<_, ()>(LogicInstruction {
+                op: instruction,
+                amount_from_cl: amount,
+                is_wide: match (tag, &dest) {
+                    (None, LogicTarget::Register(reg)) => reg.is_wide(),
+                    (Some(tag), LogicTarget::Address(_)) => match tag {
+                        OffsetTag::Byte => false,
+                        OffsetTag::Word => true,
+                        OffsetTag::None => todo!(),
+                    },
+                    (_, _) => panic!("Unexpected"),
+                },
+                target: dest,
+            })
+        },
     )(input)
 }
 
@@ -920,6 +984,7 @@ fn instruction(input: &str) -> IResult<&str, Instruction<&str>> {
             Ok::<_, ()>(Instruction::Arithmetic(v))
         }),
         map_res(inc_instruction, |v| Ok::<_, ()>(Instruction::Inc(v))),
+        map_res(logic_instruction, |v| Ok::<_, ()>(Instruction::Logic(v))),
         map_res(tag("ret"), |_| Ok::<_, ()>(Instruction::Ret)),
         map_res(jump, |(v, label)| Ok::<_, ()>(Instruction::Jump(v, label))),
         map_res(label, |v| {
