@@ -14,8 +14,8 @@ mod test_computer {
     }
 
     fn test_sim<T>(input_bytecode: T, expected_trace: &str, display_ip: bool)
-    where
-        T: AsRef<[u8]>,
+        where
+            T: AsRef<[u8]>,
     {
         let mut computer = Computer::new();
 
@@ -195,6 +195,80 @@ mod test_computer {
         let expected_trace = include_str!(
             "../../computer_enhance/perfaware/part1/listing_0055_challenge_rectangle.txt"
         );
+        test_sim(input_bytecode, expected_trace, true)
+    }
+
+    #[test]
+    fn test_estimating_cycles() {
+        let input_bytecode = include_bytes!(
+            "../../computer_enhance/perfaware/part1/listing_0056_estimating_cycles"
+        );
+        let expected_trace =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0056_estimating_cycles.txt");
+        test_sim(input_bytecode, expected_trace, true)
+    }
+
+    #[test]
+    fn test_challenge_cycles() {
+        let input_bytecode = include_bytes!(
+            "../../computer_enhance/perfaware/part1/listing_0057_challenge_cycles"
+        );
+        let expected_trace =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0057_challenge_cycles.txt");
+        test_sim(input_bytecode, expected_trace, true)
+    }
+
+    #[test]
+    fn test_single_scalar() {
+        let input_bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0059_SingleScalar");
+        let expected_trace =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0059_SingleScalar.txt");
+        test_sim(input_bytecode, expected_trace, true)
+    }
+
+    #[test]
+    fn test_unroll2_scalar() {
+        let input_bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0060_Unroll2Scalar");
+        let expected_trace =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0060_Unroll2Scalar.txt");
+        test_sim(input_bytecode, expected_trace, true)
+    }
+
+    #[test]
+    fn test_dual_scalar() {
+        let input_bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0061_DualScalar");
+        let expected_trace =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0061_DualScalar.txt");
+        test_sim(input_bytecode, expected_trace, true)
+    }
+
+    #[test]
+    fn test_quad_scalar() {
+        let input_bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0062_QuadScalar");
+        let expected_trace =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0062_QuadScalar.txt");
+        test_sim(input_bytecode, expected_trace, true)
+    }
+
+    #[test]
+    fn test_quad_scalar_ptr() {
+        let input_bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0063_QuadScalarPtr");
+        let expected_trace =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0063_QuadScalarPtr.txt");
+        test_sim(input_bytecode, expected_trace, true)
+    }
+
+    #[test]
+    fn test_tree_scalar_ptr() {
+        let input_bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0064_TreeScalarPtr");
+        let expected_trace =
+            include_str!("../../computer_enhance/perfaware/part1/listing_0064_TreeScalarPtr.txt");
         test_sim(input_bytecode, expected_trace, true)
     }
 }
