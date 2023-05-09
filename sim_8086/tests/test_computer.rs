@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod test_computer {
     use sim_8086::{computer::Computer, program::Program};
+    use std::ops::Index;
     use std::str;
 
     fn clean_trace(s: &str) -> String {
@@ -8,14 +9,24 @@ mod test_computer {
             .replace("\r\n", "\n")
             .replace("      ", "")
             .replace(" \n", "\n");
+
+        // Chop the initial header on trace reports
+        if let Some(index) = s.find(" ---") {
+            s.drain(0..=index);
+        }
         let first_newline = s.find('\n').unwrap();
         s.drain(0..=first_newline);
+
+        // Chop the 8088 section on trace reports
+        if let Some(index) = s.find("\n******") {
+            s.drain(index..);
+        }
         s
     }
 
     fn test_sim<T>(input_bytecode: T, expected_trace: &str, display_ip: bool)
-        where
-            T: AsRef<[u8]>,
+    where
+        T: AsRef<[u8]>,
     {
         let mut computer = Computer::new();
 
@@ -200,21 +211,21 @@ mod test_computer {
 
     #[test]
     fn test_estimating_cycles() {
-        let input_bytecode = include_bytes!(
-            "../../computer_enhance/perfaware/part1/listing_0056_estimating_cycles"
+        let input_bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0056_estimating_cycles");
+        let expected_trace = include_str!(
+            "../../computer_enhance/perfaware/part1/listing_0056_estimating_cycles.txt"
         );
-        let expected_trace =
-            include_str!("../../computer_enhance/perfaware/part1/listing_0056_estimating_cycles.txt");
         test_sim(input_bytecode, expected_trace, true)
     }
 
     #[test]
     fn test_challenge_cycles() {
-        let input_bytecode = include_bytes!(
-            "../../computer_enhance/perfaware/part1/listing_0057_challenge_cycles"
+        let input_bytecode =
+            include_bytes!("../../computer_enhance/perfaware/part1/listing_0057_challenge_cycles");
+        let expected_trace = include_str!(
+            "../../computer_enhance/perfaware/part1/listing_0057_challenge_cycles.txt"
         );
-        let expected_trace =
-            include_str!("../../computer_enhance/perfaware/part1/listing_0057_challenge_cycles.txt");
         test_sim(input_bytecode, expected_trace, true)
     }
 

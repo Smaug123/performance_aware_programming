@@ -762,8 +762,8 @@ impl Computer {
         parity % 2 == 1
     }
 
-    fn step_arithmetic(&mut self, instruction: &ArithmeticInstruction) -> String {
-        let (source, old_value, new_value, flags) = match &instruction.instruction {
+    fn step_arithmetic(&mut self, instruction: &ArithmeticInstruction) {
+        let (new_value, flags) = match &instruction.instruction {
             ArithmeticInstructionSelect::RegisterToRegister(instr) => {
                 let current_value = self.get_register(&instr.dest);
                 let incoming_value = self.get_register(&instr.source);
@@ -772,9 +772,34 @@ impl Computer {
                 if flags.should_write {
                     self.set_register(&instr.dest, new_value);
                 }
-                (format!("{}", instr.dest), current_value, new_value, flags)
+                (new_value, flags)
             }
-            ArithmeticInstructionSelect::RegisterToMemory(_) => todo!(),
+            ArithmeticInstructionSelect::RegisterToMemory(instr) => {
+                let dest = self.resolve_eaddr(&instr.dest);
+                let current_value = if instr.source.is_wide() {
+                    self.get_memory_word(dest)
+                } else {
+                    self.get_memory_byte(dest) as u16
+                };
+                let incoming = self.get_register(&instr.source);
+
+                let (new_value, flags) = Self::apply(
+                    instruction.op,
+                    current_value,
+                    incoming,
+                    !instr.source.is_wide(),
+                );
+
+                if flags.should_write {
+                    if instr.source.is_wide() {
+                        self.set_memory_word(dest, new_value);
+                    } else {
+                        self.set_memory_byte(dest, new_value as u8);
+                    }
+                }
+
+                (new_value, flags)
+            }
             ArithmeticInstructionSelect::MemoryToRegister(instr) => {
                 let current_value = self.get_register(&instr.dest);
                 let incoming_value = if instr.dest.is_wide() {
@@ -787,7 +812,7 @@ impl Computer {
                 if flags.should_write {
                     self.set_register(&instr.dest, new_value);
                 }
-                (format!("{}", instr.dest), current_value, new_value, flags)
+                (new_value, flags)
             }
             ArithmeticInstructionSelect::ImmediateToRegisterByte(register, value, is_extended) => {
                 let current_value = self.get_register(register);
@@ -800,7 +825,7 @@ impl Computer {
                 if flags.should_write {
                     self.set_register(register, new_value);
                 }
-                (format!("{}", register), current_value, new_value, flags)
+                (new_value, flags)
             }
             ArithmeticInstructionSelect::ImmediateToRegisterWord(register, value, is_extended) => {
                 let current_value = self.get_register(register);
@@ -809,7 +834,7 @@ impl Computer {
                 if flags.should_write {
                     self.set_register(register, new_value);
                 }
-                (format!("{}", register), current_value, new_value, flags)
+                (new_value, flags)
             }
             ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryByte(_, _, _) => todo!(),
             ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryWord(_, _) => todo!(),
@@ -824,7 +849,7 @@ impl Computer {
                 if flags.should_write {
                     self.set_register(&reg, new_value);
                 }
-                (format!("{}", reg), current_value, new_value, flags)
+                (new_value, flags)
             }
             ArithmeticInstructionSelect::ImmediateToAccWord(value) => {
                 let reg = Register::General(GeneralRegister::A, RegisterSubset::All);
@@ -833,7 +858,7 @@ impl Computer {
                 if flags.should_write {
                     self.set_register(&reg, new_value);
                 }
-                (format!("{}", reg), current_value, new_value, flags)
+                (new_value, flags)
             }
         };
 
@@ -850,17 +875,6 @@ impl Computer {
             Flag::Status(StatusFlag::Parity),
             !Self::is_odd_parity(new_value % 256),
         );
-        let result_desc = if flags.should_write && old_value != new_value {
-            format!(
-                " {}:{}->{}",
-                source,
-                display_small(old_value),
-                display_small(new_value)
-            )
-        } else {
-            "".to_owned()
-        };
-        format!("{instruction} ;{result_desc}")
     }
 
     fn step_boolean(&mut self, _instruction: &BooleanInstruction) -> String {
