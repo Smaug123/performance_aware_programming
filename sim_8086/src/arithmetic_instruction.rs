@@ -239,7 +239,33 @@ impl ArithmeticInstruction {
                 ArithmeticInstructionSelect::ImmediateToAccWord(_) => (4, "".to_owned()),
             },
             ArithmeticOperation::Xor | ArithmeticOperation::And | ArithmeticOperation::Or => {
-                panic!("TODO: can we get rid of this? it's covered in logic")
+                match &self.instruction {
+                    ArithmeticInstructionSelect::RegisterToRegister(_) => (3, "".to_owned()),
+                    ArithmeticInstructionSelect::RegisterToMemory(instr) => {
+                        let (count, result) = instr.dest.clock_count();
+                        (count + 16, format!("16 {result}"))
+                    }
+                    ArithmeticInstructionSelect::MemoryToRegister(instr) => {
+                        let (count, result) = instr.source.clock_count();
+                        (count + 9, format!("9 {result}"))
+                    }
+                    ArithmeticInstructionSelect::ImmediateToRegisterByte(_, _, _) => {
+                        (4, "".to_owned())
+                    }
+                    ArithmeticInstructionSelect::ImmediateToRegisterWord(_, _, _) => {
+                        (4, "".to_owned())
+                    }
+                    ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryByte(addr, _, _) => {
+                        let (count, result) = addr.clock_count();
+                        (count + 17, format!("17, {result}"))
+                    }
+                    ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryWord(addr, _) => {
+                        let (count, result) = addr.clock_count();
+                        (count + 17, format!("17, {result}"))
+                    }
+                    ArithmeticInstructionSelect::ImmediateToAccByte(_) => (4, "".to_owned()),
+                    ArithmeticInstructionSelect::ImmediateToAccWord(_) => (4, "".to_owned()),
+                }
             }
         }
     }

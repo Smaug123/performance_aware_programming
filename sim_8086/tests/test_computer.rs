@@ -51,7 +51,11 @@ mod test_computer {
                     panic!("landed in middle of instruction")
                 }
                 Some(instruction) => {
-                    trace.push(computer.step(instruction, display_ip, show_clock));
+                    let (trace_line, stop) = computer.step(instruction, display_ip, show_clock);
+                    trace.push(trace_line);
+                    if stop {
+                        break;
+                    }
                 }
             }
         }

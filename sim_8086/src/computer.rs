@@ -941,11 +941,32 @@ impl Computer {
             old_value - 1
         };
 
+        self.set_flag(Flag::Status(StatusFlag::Zero), new_value == 0);
+        self.set_flag(
+            Flag::Status(StatusFlag::Parity),
+            !Self::is_odd_parity(new_value % 256),
+        );
+        self.set_flag(Flag::Status(StatusFlag::Sign), new_value & 0x8000 > 0);
+        if !instruction.is_inc {
+            todo!()
+        } else {
+            self.set_flag(Flag::Status(StatusFlag::AuxiliaryCarry), old_value == 15);
+        }
+
         self.set_register(&instruction.target, new_value);
     }
 
-    fn step_ret(&mut self) -> String {
-        todo!()
+    #[allow(dead_code)]
+    fn step_ret(&mut self) {
+        let sp = Register::Special(SpecialRegister::StackPointer);
+        let sp_prev = self.get_register(&sp);
+        let new_sp = if sp_prev > u16::MAX - 2 {
+            sp_prev - (u16::MAX - 2)
+        } else {
+            sp_prev + 2
+        };
+        self.set_register(&sp, new_sp);
+        self.program_counter = self.get_memory_word(sp_prev as usize);
     }
 
     fn step_logic(&mut self, _instruction: &LogicInstruction) {
@@ -1039,13 +1060,13 @@ impl Computer {
         self.program_counter
     }
 
-    /// Returns a string representation of what happened.
+    /// Returns a string representation of what happened, and true if we are meant to stop.
     pub fn step(
         &mut self,
         instruction: &Instruction<i8>,
         display_ip: bool,
         show_clock: bool,
-    ) -> String {
+    ) -> (String, bool) {
         let advance = instruction.length();
         let old_ip = if display_ip {
             Some(self.program_counter)
@@ -1057,89 +1078,96 @@ impl Computer {
 
         self.program_counter += advance as u16;
 
-        let instruction_override = match instruction {
+        let (instruction_override, stop) = match instruction {
             Instruction::Move(mov) => {
                 self.step_mov(mov);
-                None
+                (None, false)
             }
             Instruction::Arithmetic(arith) => {
                 self.step_arithmetic(arith);
-                None
+                (None, false)
             }
             Instruction::Jump(jump, offset) => {
-                let overriden = self.step_jump(*jump, *offset);
-                Some(overriden)
+                let overridden = self.step_jump(*jump, *offset);
+                (Some(overridden), false)
             }
             Instruction::Boolean(boolean) => {
                 self.step_boolean(boolean);
-                None
+                (None, false)
             }
             Instruction::Inc(inc) => {
                 self.step_inc(inc);
-                None
+                (None, false)
             }
-            Instruction::Ret => {
-                self.step_ret();
-                None
-            }
+            Instruction::Ret => (None, true),
             Instruction::Logic(instruction) => {
                 self.step_logic(instruction);
-                None
+                (None, false)
             }
-            Instruction::Trivia(_) => None,
+            Instruction::Trivia(_) => (None, false),
         };
 
-        let mut post: Vec<String> = Vec::new();
-
-        let (clock_count, clock_description) = match &instruction_override {
-            None => instruction.clock_count(None),
-            Some((_, jumped)) => instruction.clock_count(Some(*jumped)),
-        };
-        if show_clock {
-            post.push("Clocks:".to_owned());
-            post.push(format!(
-                "+{} = {}",
-                clock_count,
-                self.clocks_executed + clock_count
-            ));
-            if !clock_description.is_empty() {
-                post.push(format!("({})", clock_description))
-            }
-            post.push("|".to_owned());
-        }
-        self.clocks_executed += clock_count;
-
-        let acc_desc = self.registers.diff(&old_registers);
-        if !acc_desc.is_empty() {
-            post.push(acc_desc);
-        }
-
-        match old_ip {
-            None => {}
-            Some(old_ip) => {
-                post.push(format!(
-                    "ip:{}->{}",
-                    display_small(old_ip),
-                    display_small(self.program_counter)
-                ));
-            }
-        }
-
-        if old_flags != self.flags {
-            post.push(format!("flags:{}->{}", old_flags, self.flags));
-        }
-
-        let post = post.join(" ");
-
-        let instruction = match instruction_override {
-            None => format!("{instruction}"),
-            Some((i, _)) => i,
-        };
-
-        if post.is_empty() {
-            instruction
+        if stop {
+            (
+                format!(
+                    "STOPONRET: Return encountered at address {}.",
+                    self.program_counter
+                ),
+                true,
+            )
         } else {
-            format!("{instruction} ; {post}")
+            let mut post: Vec<String> = Vec::new();
+
+            let (clock_count, clock_description) = match &instruction_override {
+                None => instruction.clock_count(None),
+                Some((_, jumped)) => instruction.clock_count(Some(!*jumped)),
+            };
+            if show_clock {
+                post.push("Clocks:".to_owned());
+                post.push(format!(
+                    "+{} = {}",
+                    clock_count,
+                    self.clocks_executed + clock_count
+                ));
+                if !clock_description.is_empty() {
+                    post.push(format!("({})", clock_description))
+                }
+                post.push("|".to_owned());
+            }
+            self.clocks_executed += clock_count;
+
+            let acc_desc = self.registers.diff(&old_registers);
+            if !acc_desc.is_empty() {
+                post.push(acc_desc);
+            }
+
+            match old_ip {
+                None => {}
+                Some(old_ip) => {
+                    post.push(format!(
+                        "ip:{}->{}",
+                        display_small(old_ip),
+                        display_small(self.program_counter)
+                    ));
+                }
+            }
+
+            if old_flags != self.flags {
+                post.push(format!("flags:{}->{}", old_flags, self.flags));
+            }
+
+            let post = post.join(" ");
+
+            let instruction = match instruction_override {
+                None => format!("{instruction}"),
+                Some((i, _)) => i,
+            };
+
+            if post.is_empty() {
+                (instruction, false)
+            } else {
+                (format!("{instruction} ; {post}"), false)
+            }
         }
     }
 
