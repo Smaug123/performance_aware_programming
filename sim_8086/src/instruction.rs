@@ -559,11 +559,13 @@ impl<A> Instruction<A> {
     }
 
     /// Returns a description (possibly empty) of how this computation was performed.
-    pub fn clock_count(&self) -> (u32, String) {
+    pub fn clock_count(&self, is_jump_success: Option<bool>) -> (u32, String) {
         match self {
             Instruction::Move(instr) => instr.clock_count(),
             Instruction::Arithmetic(instr) => instr.clock_count(),
-            Instruction::Jump(_, _) => todo!(),
+            Instruction::Jump(instr, _) => {
+                (instr.clock_count(is_jump_success.unwrap()), "".to_owned())
+            }
             Instruction::Boolean(instr) => instr.clock_count(),
             Instruction::Logic(instr) => instr.clock_count(),
             Instruction::Inc(instr) => instr.clock_count(),

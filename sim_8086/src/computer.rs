@@ -935,7 +935,9 @@ impl Computer {
         todo!()
     }
 
-    fn step_jump(&mut self, jump: Jump, offset: i8) -> String {
+    /// Returns a string description of the jump, and a bool indicating
+    /// whether the jump actually happened.
+    fn step_jump(&mut self, jump: Jump, offset: i8) -> (String, bool) {
         let should_jump = match jump {
             Jump::Je => self.flags.get(Flag::Status(StatusFlag::Zero)),
             Jump::Jl => {
@@ -1005,11 +1007,14 @@ impl Computer {
             self.program_counter = (self.program_counter as i32 + offset as i32) as u16;
         }
         // In NASM, the dollar sign is an offset *without* including the bytes of the jump.
-        format!(
-            "{} ${}{}",
-            jump,
-            if offset > 0 { "+" } else { "" },
-            offset + 2,
+        (
+            format!(
+                "{} ${}{}",
+                jump,
+                if offset > 0 { "+" } else { "" },
+                offset + 2,
+            ),
+            should_jump,
         )
     }
 
@@ -1044,7 +1049,10 @@ impl Computer {
                 self.step_arithmetic(arith);
                 None
             }
-            Instruction::Jump(jump, offset) => Some(self.step_jump(*jump, *offset)),
+            Instruction::Jump(jump, offset) => {
+                let overriden = self.step_jump(*jump, *offset);
+                Some(overriden)
+            }
             Instruction::Boolean(boolean) => {
                 self.step_boolean(boolean);
                 None
@@ -1066,7 +1074,10 @@ impl Computer {
 
         let mut post: Vec<String> = Vec::new();
 
-        let (clock_count, clock_description) = instruction.clock_count();
+        let (clock_count, clock_description) = match &instruction_override {
+            None => instruction.clock_count(None),
+            Some((_, jumped)) => instruction.clock_count(Some(*jumped)),
+        };
         if show_clock {
             post.push("Clocks:".to_owned());
             post.push(format!(
@@ -1105,7 +1116,7 @@ impl Computer {
 
         let instruction = match instruction_override {
             None => format!("{instruction}"),
-            Some(i) => i,
+            Some((i, _)) => i,
         };
 
         if post.is_empty() {
