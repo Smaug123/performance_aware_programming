@@ -56,7 +56,7 @@ pub struct LogicInstruction {
 impl Display for LogicInstruction {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!(
-            "{} {},{}",
+            "{} {}, {}",
             self.op,
             self.target,
             if self.amount_from_cl { "cl" } else { "1" }
@@ -101,5 +101,30 @@ impl LogicInstruction {
         };
 
         result
+    }
+
+    pub fn clock_count(&self) -> (u32, String) {
+        match (&self.op, &self.target) {
+            (LogicInstructionType::Not, LogicTarget::Register(_)) => (3, "".to_owned()),
+            (LogicInstructionType::Not, LogicTarget::Address(addr)) => {
+                let (count, result) = addr.clock_count();
+                (count + 16, format!("16 {result}"))
+            }
+            (_, LogicTarget::Register(_)) => {
+                if self.amount_from_cl {
+                    todo!()
+                } else {
+                    (2, "".to_owned())
+                }
+            }
+            (_, LogicTarget::Address(addr)) => {
+                if self.amount_from_cl {
+                    todo!()
+                } else {
+                    let (count, result) = addr.clock_count();
+                    (count + 15, format!("15 {result}"))
+                }
+            }
+        }
     }
 }

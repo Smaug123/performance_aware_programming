@@ -126,7 +126,7 @@ fn run(bytecode: Vec<u8>) -> Computer {
                 panic!("landed in middle of instruction")
             }
             Some(instruction) => {
-                computer.step(instruction, false);
+                computer.step(instruction, false, false);
             }
         }
     }

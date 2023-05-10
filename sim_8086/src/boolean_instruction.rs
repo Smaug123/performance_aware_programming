@@ -163,4 +163,25 @@ impl BooleanInstruction {
             BooleanInstructionDestination::RegReg(_) => 2,
         }
     }
+
+    pub fn clock_count(&self) -> (u32, String) {
+        match self.selection {
+            BooleanInstructionType::Test => match self.dest {
+                BooleanInstructionDestination::ImmediateToAcc(_) => (4, "".to_owned()),
+                BooleanInstructionDestination::RegReg(_) => (3, "".to_owned()),
+            },
+            BooleanInstructionType::And => match self.dest {
+                BooleanInstructionDestination::ImmediateToAcc(_) => (4, "".to_owned()),
+                BooleanInstructionDestination::RegReg(_) => (3, "".to_owned()),
+            },
+            BooleanInstructionType::Or => match self.dest {
+                BooleanInstructionDestination::ImmediateToAcc(_) => (4, "".to_owned()),
+                BooleanInstructionDestination::RegReg(_) => (3, "".to_owned()),
+            },
+            BooleanInstructionType::Xor => match self.dest {
+                BooleanInstructionDestination::ImmediateToAcc(_) => (4, "".to_owned()),
+                BooleanInstructionDestination::RegReg(_) => (3, "".to_owned()),
+            },
+        }
+    }
 }

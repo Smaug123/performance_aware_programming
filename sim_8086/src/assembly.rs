@@ -26,8 +26,8 @@ use crate::{
     instruction::Instruction,
     jump_instruction::Jump,
     move_instruction::{
-        AccumulatorToMemory, ImmediateToMemory, ImmediateToRegister, MemRegMove,
-        MemoryToAccumulator, MemoryToSegment, MoveInstruction, RegMemMove, RegRegMove,
+        AccumulatorToMemory, ImmediateToMemory, ImmediateToRegister, MemToRegMove,
+        MemoryToAccumulator, MemoryToSegment, MoveInstruction, RegRegMove, RegToMemMove,
         RegisterToSegment, SegmentToMemory, SegmentToRegister,
     },
     program::Program,
@@ -475,7 +475,7 @@ fn seg_to_reg_move_instruction(input: &str) -> IResult<&str, SegmentToRegister> 
     )(input)
 }
 
-fn reg_mem_move_instruction(input: &str) -> IResult<&str, RegMemMove> {
+fn reg_mem_move_instruction(input: &str) -> IResult<&str, RegToMemMove> {
     map_res(
         preceded(
             ws(tag("mov ")),
@@ -483,7 +483,7 @@ fn reg_mem_move_instruction(input: &str) -> IResult<&str, RegMemMove> {
         ),
         |((tag, address), register)| match (tag, register.is_wide()) {
             (OffsetTag::Word, false) => Err(()),
-            _ => Ok::<_, ()>(RegMemMove {
+            _ => Ok::<_, ()>(RegToMemMove {
                 dest: address,
                 source: register,
             }),
@@ -491,7 +491,7 @@ fn reg_mem_move_instruction(input: &str) -> IResult<&str, RegMemMove> {
     )(input)
 }
 
-fn mem_reg_move_instruction(input: &str) -> IResult<&str, MemRegMove> {
+fn mem_reg_move_instruction(input: &str) -> IResult<&str, MemToRegMove> {
     map_res(
         preceded(
             ws(tag("mov ")),
@@ -499,7 +499,7 @@ fn mem_reg_move_instruction(input: &str) -> IResult<&str, MemRegMove> {
         ),
         |(register, (tag, address))| match (tag, register.is_wide()) {
             (OffsetTag::Word, false) => Err(()),
-            _ => Ok::<_, ()>(MemRegMove {
+            _ => Ok::<_, ()>(MemToRegMove {
                 dest: register,
                 source: address,
             }),

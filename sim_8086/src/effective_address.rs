@@ -80,7 +80,7 @@ impl Display for EffectiveAddress {
                 }
             }
             EffectiveAddress::Bx(offset) => match offset {
-                WithOffset::Basic(()) => f.write_str("bx"),
+                WithOffset::Basic(()) => f.write_str("[bx]"),
                 WithOffset::WithU8((), offset) => f.write_fmt(format_args!("[bx+{}]", offset)),
                 WithOffset::WithU16((), offset) => f.write_fmt(format_args!("[bx+{}]", offset)),
             },
@@ -305,5 +305,50 @@ impl EffectiveAddress {
             EffectiveAddress::BasePointer(_) => 2,
             EffectiveAddress::BasePointerWide(_) => 3,
         }
+    }
+
+    pub(crate) fn clock_count(&self) -> (u32, String) {
+        let count = match self {
+            EffectiveAddress::Sum(WithOffset::Basic((base, source_dest))) => {
+                match (base, source_dest) {
+                    (Base::Bx, SourceDest::Source) | (Base::Bp, SourceDest::Dest) => 7,
+                    _ => 8,
+                }
+            }
+            EffectiveAddress::Sum(WithOffset::WithU8((base, source_dest), _)) => {
+                match (base, source_dest) {
+                    (Base::Bx, SourceDest::Source) | (Base::Bp, SourceDest::Dest) => 11,
+                    _ => 12,
+                }
+            }
+            EffectiveAddress::Sum(WithOffset::WithU16((base, source_dest), _)) => {
+                match (base, source_dest) {
+                    (Base::Bx, SourceDest::Source) | (Base::Bp, SourceDest::Dest) => 11,
+                    _ => 12,
+                }
+            }
+            EffectiveAddress::SpecifiedIn(WithOffset::Basic(_)) => 5,
+            EffectiveAddress::SpecifiedIn(WithOffset::WithU8(_, _)) => 9,
+            EffectiveAddress::SpecifiedIn(WithOffset::WithU16(_, _)) => 9,
+            EffectiveAddress::Bx(WithOffset::Basic(())) => 5,
+            EffectiveAddress::Bx(WithOffset::WithU8((), _)) => 9,
+            EffectiveAddress::Bx(WithOffset::WithU16((), _)) => 9,
+            EffectiveAddress::Direct(_) => 6,
+            EffectiveAddress::BasePointer(i) => {
+                if *i == 0 {
+                    5
+                } else {
+                    9
+                }
+            }
+            EffectiveAddress::BasePointerWide(i) => {
+                if *i == 0 {
+                    5
+                } else {
+                    9
+                }
+            }
+        };
+        (count, format!("+ {count}ea"))
     }
 }

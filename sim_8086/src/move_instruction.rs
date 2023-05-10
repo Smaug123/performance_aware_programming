@@ -99,12 +99,12 @@ impl RegRegMove {
 }
 
 #[derive(Eq, PartialEq, Debug, Hash, Clone, Arbitrary)]
-pub struct RegMemMove {
+pub struct RegToMemMove {
     pub source: Register,
     pub dest: EffectiveAddress,
 }
 
-impl RegMemMove {
+impl RegToMemMove {
     fn to_bytes(&self) -> Vec<u8> {
         let mut result = Vec::<u8>::with_capacity(2);
 
@@ -124,12 +124,12 @@ impl RegMemMove {
 }
 
 #[derive(Eq, PartialEq, Debug, Hash, Clone, Arbitrary)]
-pub struct MemRegMove {
+pub struct MemToRegMove {
     pub source: EffectiveAddress,
     pub dest: Register,
 }
 
-impl MemRegMove {
+impl MemToRegMove {
     fn to_bytes(&self) -> Vec<u8> {
         let mut result = Vec::with_capacity(2);
 
@@ -368,9 +368,9 @@ pub enum MoveInstruction {
     /// Move a value from one register to another
     RegRegMove(RegRegMove),
     /// Store a value from a register into memory
-    RegMemMove(RegMemMove),
+    RegMemMove(RegToMemMove),
     /// Load a value from memory into a register
-    MemRegMove(MemRegMove),
+    MemRegMove(MemToRegMove),
     /// Load a literal value into a register
     ImmediateToRegister(ImmediateToRegister),
     /// Load a literal value into a register or into memory
@@ -471,6 +471,41 @@ impl MoveInstruction {
             MoveInstruction::RegisterToSegment(mov) => mov.length(),
         }
     }
+
+    pub fn clock_count(&self) -> (u32, String) {
+        match self {
+            MoveInstruction::RegRegMove(_) => (2, "".to_owned()),
+            MoveInstruction::RegMemMove(instr) => {
+                let (count, result) = instr.dest.clock_count();
+                (count + 9, format!("9 {result}"))
+            }
+            MoveInstruction::MemRegMove(instr) => {
+                let (count, result) = instr.source.clock_count();
+                (count + 8, format!("8 {result}"))
+            }
+            MoveInstruction::ImmediateToRegister(_) => (4, "".to_owned()),
+            MoveInstruction::ImmediateToMemory(instr) => {
+                let dest = match instr {
+                    ImmediateToMemory::Byte(addr, _) => addr,
+                    ImmediateToMemory::Word(addr, _) => addr,
+                };
+                let (count, result) = dest.clock_count();
+                (10 + count, format!("10 {result}"))
+            }
+            MoveInstruction::MemoryToAccumulator(_) => (10, "".to_owned()),
+            MoveInstruction::AccumulatorToMemory(_) => (10, "".to_owned()),
+            MoveInstruction::SegmentToMemory(instr) => {
+                let (count, result) = instr.dest.clock_count();
+                (9 + count, format!("9 {result}"))
+            }
+            MoveInstruction::MemoryToSegment(instr) => {
+                let (count, result) = instr.source.clock_count();
+                (9 + count, format!("9, {result}"))
+            }
+            MoveInstruction::SegmentToRegister(_) => (2, "".to_owned()),
+            MoveInstruction::RegisterToSegment(_) => (2, "".to_owned()),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -478,13 +513,13 @@ mod test_move_instruction {
     use crate::{
         effective_address::EffectiveAddress,
         instruction::Instruction,
-        move_instruction::{MemRegMove, MoveInstruction},
+        move_instruction::{MemToRegMove, MoveInstruction},
         register::{GeneralRegister, Register, RegisterSubset},
     };
 
     #[test]
     fn mem_reg_move_to_bytes() {
-        let i = MoveInstruction::MemRegMove(MemRegMove {
+        let i = MoveInstruction::MemRegMove(MemToRegMove {
             source: EffectiveAddress::BasePointer(0),
             dest: Register::General(GeneralRegister::D, RegisterSubset::All),
         });
