@@ -432,17 +432,21 @@ impl Computer {
         self.memory[index]
     }
 
-    fn get_memory_word(&self, index: usize) -> u16 {
-        self.memory[index] as u16 + self.memory[index + 1] as u16 * 256
+    /// Returns true if the access took an extra four cycles.
+    fn get_memory_word(&self, index: usize) -> (u16, bool) {
+        let value = self.memory[index] as u16 + self.memory[index + 1] as u16 * 256;
+        (value, index % 2 == 1)
     }
 
     fn set_memory_byte(&mut self, index: usize, value: u8) {
         self.memory[index] = value;
     }
 
-    fn set_memory_word(&mut self, index: usize, value: u16) {
+    /// Returns true if the access took an extra four cycles.
+    fn set_memory_word(&mut self, index: usize, value: u16) -> bool {
         self.memory[index] = (value % 256) as u8;
         self.memory[index + 1] = (value / 256) as u8;
+        index % 2 == 1
     }
 
     fn get_base_offset(&self, base: &Base) -> u16 {
@@ -519,37 +523,48 @@ impl Computer {
         }
     }
 
-    fn step_mov(&mut self, instruction: &MoveInstruction) {
+    /// Returns true if the access took four extra clocks.
+    fn step_mov(&mut self, instruction: &MoveInstruction) -> bool {
         match &instruction {
             MoveInstruction::RegRegMove(mov) => {
                 let value = self.get_register(&mov.source);
-                self.set_register(&mov.dest, value)
+                self.set_register(&mov.dest, value);
+                false
             }
             MoveInstruction::RegMemMove(mov) => {
                 let value = self.get_register(&mov.source);
                 if mov.source.is_wide() {
                     self.set_memory_word(self.resolve_eaddr(&mov.dest), value)
                 } else {
-                    self.set_memory_byte(self.resolve_eaddr(&mov.dest), value as u8)
+                    self.set_memory_byte(self.resolve_eaddr(&mov.dest), value as u8);
+                    false
                 }
             }
             MoveInstruction::MemRegMove(mov) => {
                 if mov.dest.is_wide() {
-                    let value = self.get_memory_word(self.resolve_eaddr(&mov.source));
-                    self.set_register(&mov.dest, value)
+                    let (value, slow) = self.get_memory_word(self.resolve_eaddr(&mov.source));
+                    self.set_register(&mov.dest, value);
+                    slow
                 } else {
                     let value = self.get_memory_byte(self.resolve_eaddr(&mov.source));
-                    self.set_register(&mov.dest, value as u16)
+                    self.set_register(&mov.dest, value as u16);
+                    false
                 }
             }
-            MoveInstruction::ImmediateToRegister(mov) => match mov {
-                ImmediateToRegister::Byte(dest, value) => self.set_register(dest, *value as u16),
-                ImmediateToRegister::Wide(dest, value) => self.set_register(dest, *value),
-            },
+            MoveInstruction::ImmediateToRegister(mov) => {
+                match mov {
+                    ImmediateToRegister::Byte(dest, value) => {
+                        self.set_register(dest, *value as u16)
+                    }
+                    ImmediateToRegister::Wide(dest, value) => self.set_register(dest, *value),
+                }
+                false
+            }
             MoveInstruction::ImmediateToMemory(mov) => match mov {
                 ImmediateToMemory::Byte(addr, value) => {
                     let dest = self.resolve_eaddr(addr);
-                    self.set_memory_word(dest, *value as u16)
+                    self.set_memory_byte(dest, *value);
+                    false
                 }
                 ImmediateToMemory::Word(addr, value) => {
                     let dest = self.resolve_eaddr(addr);
@@ -558,10 +573,12 @@ impl Computer {
             },
             MoveInstruction::MemoryToAccumulator(mov) => {
                 if mov.is_wide {
+                    let (value, slow) = self.get_memory_word(mov.address as usize);
                     self.set_register(
                         &Register::General(GeneralRegister::A, RegisterSubset::All),
-                        self.get_memory_word(mov.address as usize),
-                    )
+                        value,
+                    );
+                    slow
                 } else {
                     self.set_register(
                         &Register::General(
@@ -569,7 +586,8 @@ impl Computer {
                             RegisterSubset::Subset(ByteRegisterSubset::Low),
                         ),
                         self.get_memory_byte(mov.address as usize) as u16,
-                    )
+                    );
+                    false
                 }
             }
             MoveInstruction::AccumulatorToMemory(mov) => {
@@ -588,7 +606,8 @@ impl Computer {
                             GeneralRegister::A,
                             RegisterSubset::Subset(ByteRegisterSubset::Low),
                         )) as u8,
-                    )
+                    );
+                    false
                 }
             }
             MoveInstruction::SegmentToMemory(mov) => {
@@ -597,18 +616,21 @@ impl Computer {
                 self.set_memory_word(dest, v)
             }
             MoveInstruction::MemoryToSegment(mov) => {
-                let value = self.get_memory_word(self.resolve_eaddr(&mov.source));
-                self.set_segment(mov.dest, value)
+                let (value, slow) = self.get_memory_word(self.resolve_eaddr(&mov.source));
+                self.set_segment(mov.dest, value);
+                slow
             }
             MoveInstruction::SegmentToRegister(mov) => {
                 let v = self.get_segment(mov.source);
-                self.set_register(&mov.dest, v)
+                self.set_register(&mov.dest, v);
+                false
             }
             MoveInstruction::RegisterToSegment(mov) => {
                 let value = self.get_register(&mov.source);
-                self.set_segment(mov.dest, value)
+                self.set_segment(mov.dest, value);
+                false
             }
-        };
+        }
     }
 
     /// Returns true if the operation overflowed, and true if the value is supposed
@@ -738,7 +760,10 @@ impl Computer {
         parity % 2 == 1
     }
 
-    fn step_arithmetic(&mut self, instruction: &ArithmeticInstruction) {
+    /// Returns a count of the extra cycles caused by misaligned memory access.
+    fn step_arithmetic(&mut self, instruction: &ArithmeticInstruction) -> u8 {
+        let mut slowness = 0;
+
         let (new_value, flags) = match &instruction.instruction {
             ArithmeticInstructionSelect::RegisterToRegister(instr) => {
                 let current_value = self.get_register(&instr.dest);
@@ -752,11 +777,14 @@ impl Computer {
             }
             ArithmeticInstructionSelect::RegisterToMemory(instr) => {
                 let dest = self.resolve_eaddr(&instr.dest);
-                let current_value = if instr.source.is_wide() {
+                let (current_value, slow) = if instr.source.is_wide() {
                     self.get_memory_word(dest)
                 } else {
-                    self.get_memory_byte(dest) as u16
+                    (self.get_memory_byte(dest) as u16, false)
                 };
+                if slow {
+                    slowness += 4;
+                }
                 let incoming = self.get_register(&instr.source);
 
                 let (new_value, flags) = Self::apply(
@@ -768,7 +796,9 @@ impl Computer {
 
                 if flags.should_write {
                     if instr.source.is_wide() {
-                        self.set_memory_word(dest, new_value);
+                        if self.set_memory_word(dest, new_value) {
+                            slowness += 4;
+                        }
                     } else {
                         self.set_memory_byte(dest, new_value as u8);
                     }
@@ -778,11 +808,17 @@ impl Computer {
             }
             ArithmeticInstructionSelect::MemoryToRegister(instr) => {
                 let current_value = self.get_register(&instr.dest);
-                let incoming_value = if instr.dest.is_wide() {
+                let (incoming_value, slow) = if instr.dest.is_wide() {
                     self.get_memory_word(self.resolve_eaddr(&instr.source))
                 } else {
-                    self.get_memory_byte(self.resolve_eaddr(&instr.source)) as u16
+                    (
+                        self.get_memory_byte(self.resolve_eaddr(&instr.source)) as u16,
+                        false,
+                    )
                 };
+                if slow {
+                    slowness += 4;
+                }
                 let (new_value, flags) =
                     Self::apply(instruction.op, current_value, incoming_value, false);
                 if flags.should_write {
@@ -868,6 +904,8 @@ impl Computer {
             Flag::Status(StatusFlag::Parity),
             !Self::is_odd_parity(new_value % 256),
         );
+
+        slowness
     }
 
     fn compute_boolean(
@@ -966,7 +1004,8 @@ impl Computer {
             sp_prev + 2
         };
         self.set_register(&sp, new_sp);
-        self.program_counter = self.get_memory_word(sp_prev as usize);
+        let (new_counter, _) = self.get_memory_word(sp_prev as usize);
+        self.program_counter = new_counter;
     }
 
     fn step_logic(&mut self, _instruction: &LogicInstruction) {
@@ -1078,33 +1117,33 @@ impl Computer {
 
         self.program_counter += advance as u16;
 
-        let (instruction_override, stop) = match instruction {
+        let (instruction_override, stop, slowness) = match instruction {
             Instruction::Move(mov) => {
-                self.step_mov(mov);
-                (None, false)
+                let slow = self.step_mov(mov);
+                (None, false, if slow { 4 } else { 0 })
             }
             Instruction::Arithmetic(arith) => {
-                self.step_arithmetic(arith);
-                (None, false)
+                let slowness = self.step_arithmetic(arith);
+                (None, false, slowness)
             }
             Instruction::Jump(jump, offset) => {
                 let overridden = self.step_jump(*jump, *offset);
-                (Some(overridden), false)
+                (Some(overridden), false, 0)
             }
             Instruction::Boolean(boolean) => {
                 self.step_boolean(boolean);
-                (None, false)
+                (None, false, 0)
             }
             Instruction::Inc(inc) => {
                 self.step_inc(inc);
-                (None, false)
+                (None, false, 0)
             }
-            Instruction::Ret => (None, true),
+            Instruction::Ret => (None, true, 0),
             Instruction::Logic(instruction) => {
                 self.step_logic(instruction);
-                (None, false)
+                (None, false, 0)
             }
-            Instruction::Trivia(_) => (None, false),
+            Instruction::Trivia(_) => (None, false, 0),
         };
 
         if stop {
@@ -1122,19 +1161,28 @@ impl Computer {
                 None => instruction.clock_count(None),
                 Some((_, jumped)) => instruction.clock_count(Some(!*jumped)),
             };
+            let new_clock = self.clocks_executed + clock_count + slowness as u32;
             if show_clock {
                 post.push("Clocks:".to_owned());
                 post.push(format!(
                     "+{} = {}",
-                    clock_count,
-                    self.clocks_executed + clock_count
+                    new_clock - self.clocks_executed,
+                    new_clock
                 ));
                 if !clock_description.is_empty() {
-                    post.push(format!("({})", clock_description))
+                    post.push(format!(
+                        "({}{})",
+                        clock_description,
+                        if slowness > 0 {
+                            format!(" + {slowness}p")
+                        } else {
+                            "".to_owned()
+                        }
+                    ))
                 }
                 post.push("|".to_owned());
             }
-            self.clocks_executed += clock_count;
+            self.clocks_executed = new_clock;
 
             let acc_desc = self.registers.diff(&old_registers);
             if !acc_desc.is_empty() {
