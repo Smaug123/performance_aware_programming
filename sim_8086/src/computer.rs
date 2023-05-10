@@ -1,6 +1,8 @@
 use std::fmt::Display;
 
-use crate::boolean_instruction::BooleanInstruction;
+use crate::boolean_instruction::{
+    BooleanInstruction, BooleanInstructionDestination, BooleanInstructionType, ImmediateToAcc,
+};
 use crate::inc_instruction::IncInstruction;
 use crate::logic_instruction::LogicInstruction;
 use crate::{
@@ -348,12 +350,7 @@ impl Computer {
         }
     }
 
-    fn set_register(&mut self, r: &Register, value: u16) -> String {
-        let register_for_print = match r {
-            Register::General(x, _) => Register::General(x.clone(), RegisterSubset::All),
-            _ => r.clone(),
-        };
-        let was = self.get_register(&register_for_print);
+    fn set_register(&mut self, r: &Register, value: u16) {
         match r {
             Register::General(GeneralRegister::A, RegisterSubset::All) => self.registers.a = value,
             Register::General(GeneralRegister::B, RegisterSubset::All) => self.registers.b = value,
@@ -420,29 +417,15 @@ impl Computer {
             Register::Special(SpecialRegister::SourceIndex) => self.registers.si = value,
             Register::Special(SpecialRegister::DestIndex) => self.registers.di = value,
         }
-        let is_now = self.get_register(&register_for_print);
-        if was != is_now {
-            format!(
-                "{}:{}->{}",
-                register_for_print,
-                display_small(was),
-                display_small(is_now)
-            )
-        } else {
-            "".to_owned()
-        }
     }
 
-    fn set_segment(&mut self, r: SegmentRegister, value: u16) -> String {
-        let was = self.get_segment(r);
+    fn set_segment(&mut self, r: SegmentRegister, value: u16) {
         match r {
             SegmentRegister::Code => self.registers.cs = value,
             SegmentRegister::Data => self.registers.ds = value,
             SegmentRegister::Stack => self.registers.ss = value,
             SegmentRegister::Extra => self.registers.es = value,
         }
-        let is_now = self.get_segment(r);
-        format!("{}:{}->{}", r, display_small(was), display_small(is_now))
     }
 
     fn get_memory_byte(&self, index: usize) -> u8 {
@@ -453,15 +436,13 @@ impl Computer {
         self.memory[index] as u16 + self.memory[index + 1] as u16 * 256
     }
 
-    fn set_memory_byte(&mut self, index: usize, value: u8) -> String {
+    fn set_memory_byte(&mut self, index: usize, value: u8) {
         self.memory[index] = value;
-        "".to_owned()
     }
 
-    fn set_memory_word(&mut self, index: usize, value: u16) -> String {
+    fn set_memory_word(&mut self, index: usize, value: u16) {
         self.memory[index] = (value % 256) as u8;
         self.memory[index + 1] = (value / 256) as u8;
-        "".to_owned()
     }
 
     fn get_base_offset(&self, base: &Base) -> u16 {
@@ -538,9 +519,8 @@ impl Computer {
         }
     }
 
-    fn step_mov(&mut self, instruction: &MoveInstruction) -> String {
-        let preamble = format!("{}", instruction);
-        let description = match &instruction {
+    fn step_mov(&mut self, instruction: &MoveInstruction) {
+        match &instruction {
             MoveInstruction::RegRegMove(mov) => {
                 let value = self.get_register(&mov.source);
                 self.set_register(&mov.dest, value)
@@ -629,12 +609,6 @@ impl Computer {
                 self.set_segment(mov.dest, value)
             }
         };
-        format!(
-            "{} ;{}{}",
-            preamble,
-            if description.is_empty() { "" } else { " " },
-            description
-        )
     }
 
     /// Returns true if the operation overflowed, and true if the value is supposed
@@ -879,8 +853,57 @@ impl Computer {
         );
     }
 
-    fn step_boolean(&mut self, _instruction: &BooleanInstruction) -> String {
-        todo!()
+    fn compute_boolean(
+        &mut self,
+        instruction: &BooleanInstructionType,
+        op1: u16,
+        op2: u16,
+    ) -> Option<u16> {
+        self.set_flag(Flag::Status(StatusFlag::Overflow), false);
+        self.set_flag(Flag::Status(StatusFlag::Carry), false);
+        let new_value = match instruction {
+            BooleanInstructionType::Test | BooleanInstructionType::And => op1 & op2,
+            BooleanInstructionType::Or => op1 | op2,
+            BooleanInstructionType::Xor => op1 ^ op2,
+        };
+
+        self.set_flag(Flag::Status(StatusFlag::Zero), new_value == 0);
+        self.set_flag(Flag::Status(StatusFlag::Sign), new_value & 0x8000 > 0);
+        self.set_flag(
+            Flag::Status(StatusFlag::Parity),
+            !Self::is_odd_parity(new_value % 256),
+        );
+
+        match instruction {
+            BooleanInstructionType::Test => None,
+            _ => Some(new_value),
+        }
+    }
+
+    fn step_boolean(&mut self, instruction: &BooleanInstruction) {
+        match &instruction.dest {
+            BooleanInstructionDestination::RegReg(reg) => {
+                let incoming = self.get_register(&reg.source);
+                let current = self.get_register(&reg.dest);
+                if let Some(new) = self.compute_boolean(&instruction.selection, incoming, current) {
+                    self.set_register(&reg.dest, new)
+                }
+            }
+            BooleanInstructionDestination::ImmediateToAcc(imm) => match imm {
+                ImmediateToAcc::Wide(incoming) => {
+                    let register = Register::General(GeneralRegister::A, RegisterSubset::All);
+                    let current = self.get_register(&register);
+                    if let Some(new) =
+                        self.compute_boolean(&instruction.selection, *incoming, current)
+                    {
+                        self.set_register(&register, new);
+                    }
+                }
+                ImmediateToAcc::Narrow(_) => {
+                    todo!()
+                }
+            },
+        }
     }
 
     fn step_inc(&mut self, instruction: &IncInstruction) {
