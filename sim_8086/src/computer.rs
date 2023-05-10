@@ -812,7 +812,24 @@ impl Computer {
                 }
                 (new_value, flags)
             }
-            ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryByte(_, _, _) => todo!(),
+            ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryByte(
+                addr,
+                value,
+                is_extended,
+            ) => {
+                let location = self.resolve_eaddr(addr);
+                let current_value = self.get_memory_byte(location);
+                let (new_value, flags) = Self::apply(
+                    instruction.op,
+                    current_value as u16,
+                    *value as u16,
+                    *is_extended,
+                );
+                if flags.should_write {
+                    self.set_memory_byte(location, new_value as u8);
+                }
+                (new_value, flags)
+            }
             ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryWord(_, _) => todo!(),
             ArithmeticInstructionSelect::ImmediateToAccByte(value) => {
                 let reg = Register::General(

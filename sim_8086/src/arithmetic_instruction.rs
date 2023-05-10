@@ -45,11 +45,15 @@ impl Display for ArithmeticInstruction {
             ArithmeticInstructionSelect::MemoryToRegister(inst) => {
                 f.write_fmt(format_args!("{}, {}", inst.dest, inst.source))
             }
-            ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryByte(addr, data, _) => {
-                f.write_fmt(format_args!("{}, {}", addr, data))
-            }
+            ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryByte(addr, data, is_wide) => f
+                .write_fmt(format_args!(
+                    "{} {}, {}",
+                    if *is_wide { "word" } else { "byte" },
+                    addr,
+                    data
+                )),
             ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryWord(addr, data) => {
-                f.write_fmt(format_args!("{}, {}", addr, data))
+                f.write_fmt(format_args!("word {}, {}", addr, data))
             }
             ArithmeticInstructionSelect::ImmediateToRegisterByte(addr, data, signed) => {
                 if *signed {

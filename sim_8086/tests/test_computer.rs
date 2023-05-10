@@ -56,7 +56,6 @@ mod test_computer {
             }
         }
 
-        trace.push("".to_owned());
         trace.push("Final registers:".to_owned());
         for line in computer.dump_register_state().lines() {
             trace.push(line.to_string());
@@ -72,10 +71,11 @@ mod test_computer {
             trace.push(format!("   flags: {}", flags));
         }
 
-        trace.push("".to_owned());
-
         let cleaned = clean_trace(expected_trace);
-        let expected = cleaned.lines().collect::<Vec<_>>();
+        let expected = cleaned
+            .lines()
+            .filter(|x| !x.is_empty())
+            .collect::<Vec<_>>();
 
         assert_eq!(trace.len(), expected.len());
 
