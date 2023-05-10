@@ -1062,12 +1062,7 @@ impl Computer {
             BooleanInstructionType::Xor => op1 ^ op2,
         };
 
-        self.set_flag(Flag::Status(StatusFlag::Zero), new_value == 0);
-        self.set_flag(Flag::Status(StatusFlag::Sign), new_value & 0x8000 > 0);
-        self.set_flag(
-            Flag::Status(StatusFlag::Parity),
-            !Self::is_odd_parity(new_value % 256),
-        );
+        self.set_flags_u16(new_value);
 
         match instruction {
             BooleanInstructionType::Test => None,
@@ -1101,6 +1096,24 @@ impl Computer {
         }
     }
 
+    fn set_flags_u16(&mut self, v: u16) {
+        self.set_flag(
+            Flag::Status(StatusFlag::Parity),
+            !Self::is_odd_parity(v % 256),
+        );
+        self.set_flag(Flag::Status(StatusFlag::Sign), v > 1 << 15);
+        self.set_flag(Flag::Status(StatusFlag::Zero), v == 0);
+    }
+
+    fn set_flags_u8(&mut self, v: u8) {
+        self.set_flag(
+            Flag::Status(StatusFlag::Parity),
+            !Self::is_odd_parity(v as u16),
+        );
+        self.set_flag(Flag::Status(StatusFlag::Sign), v > 1 << 7);
+        self.set_flag(Flag::Status(StatusFlag::Zero), v == 0);
+    }
+
     fn step_inc(&mut self, instruction: &IncInstruction) {
         let old_value = self.get_register(&instruction.target);
         let new_value = if instruction.is_inc {
@@ -1119,12 +1132,7 @@ impl Computer {
             old_value - 1
         };
 
-        self.set_flag(Flag::Status(StatusFlag::Zero), new_value == 0);
-        self.set_flag(
-            Flag::Status(StatusFlag::Parity),
-            !Self::is_odd_parity(new_value % 256),
-        );
-        self.set_flag(Flag::Status(StatusFlag::Sign), new_value & 0x8000 > 0);
+        self.set_flags_u16(new_value);
         if instruction.is_inc {
             self.set_flag(Flag::Status(StatusFlag::AuxiliaryCarry), old_value == 15);
         } else {
@@ -1165,12 +1173,7 @@ impl Computer {
                         } else {
                             self.set_flag(Flag::Status(StatusFlag::Overflow), true)
                         }
-                        self.set_flag(
-                            Flag::Status(StatusFlag::Parity),
-                            !Self::is_odd_parity(new_value % 256),
-                        );
-                        self.set_flag(Flag::Status(StatusFlag::Sign), new_value > 1 << 15);
-                        self.set_flag(Flag::Status(StatusFlag::Zero), new_value == 0);
+                        self.set_flags_u16(new_value);
                         self.set_flag(Flag::Status(StatusFlag::Carry), current_value % 2 == 1);
                     } else {
                         let current_value = self.get_register(reg) as u8;
@@ -1181,12 +1184,7 @@ impl Computer {
                         } else {
                             self.set_flag(Flag::Status(StatusFlag::Overflow), true)
                         }
-                        self.set_flag(
-                            Flag::Status(StatusFlag::Parity),
-                            !Self::is_odd_parity(new_value as u16),
-                        );
-                        self.set_flag(Flag::Status(StatusFlag::Sign), new_value > 1 << 7);
-                        self.set_flag(Flag::Status(StatusFlag::Zero), new_value == 0);
+                        self.set_flags_u8(new_value);
                         self.set_flag(Flag::Status(StatusFlag::Carry), current_value % 2 == 1);
                     }
 
@@ -1203,12 +1201,7 @@ impl Computer {
                         } else {
                             self.set_flag(Flag::Status(StatusFlag::Overflow), true)
                         }
-                        self.set_flag(
-                            Flag::Status(StatusFlag::Parity),
-                            !Self::is_odd_parity(new_value % 256),
-                        );
-                        self.set_flag(Flag::Status(StatusFlag::Sign), new_value > 1 << 15);
-                        self.set_flag(Flag::Status(StatusFlag::Zero), new_value == 0);
+                        self.set_flags_u16(new_value);
                         self.set_flag(Flag::Status(StatusFlag::Carry), current_value % 2 == 1);
                         (if slow { 4 } else { 0 }) + if slow_2 { 4 } else { 0 }
                     } else {
@@ -1221,12 +1214,7 @@ impl Computer {
                         } else {
                             self.set_flag(Flag::Status(StatusFlag::Overflow), true)
                         }
-                        self.set_flag(
-                            Flag::Status(StatusFlag::Parity),
-                            !Self::is_odd_parity(new_value as u16),
-                        );
-                        self.set_flag(Flag::Status(StatusFlag::Sign), new_value > 1 << 7);
-                        self.set_flag(Flag::Status(StatusFlag::Zero), new_value == 0);
+                        self.set_flags_u8(new_value);
                         self.set_flag(Flag::Status(StatusFlag::Carry), current_value % 2 == 1);
                         0
                     }
