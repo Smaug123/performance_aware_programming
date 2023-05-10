@@ -56,7 +56,7 @@ pub struct LogicInstruction {
 impl Display for LogicInstruction {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!(
-            "{} {},{}",
+            "{} {}, {}",
             self.op,
             self.target,
             if self.amount_from_cl { "cl" } else { "1" }

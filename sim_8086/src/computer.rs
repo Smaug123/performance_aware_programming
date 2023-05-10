@@ -4,7 +4,7 @@ use crate::boolean_instruction::{
     BooleanInstruction, BooleanInstructionDestination, BooleanInstructionType, ImmediateToAcc,
 };
 use crate::inc_instruction::IncInstruction;
-use crate::logic_instruction::LogicInstruction;
+use crate::logic_instruction::{LogicInstruction, LogicInstructionType, LogicTarget};
 use crate::{
     arithmetic_instruction::{
         ArithmeticInstruction, ArithmeticInstructionSelect, ArithmeticOperation,
@@ -1125,10 +1125,10 @@ impl Computer {
             !Self::is_odd_parity(new_value % 256),
         );
         self.set_flag(Flag::Status(StatusFlag::Sign), new_value & 0x8000 > 0);
-        if !instruction.is_inc {
-            todo!()
-        } else {
+        if instruction.is_inc {
             self.set_flag(Flag::Status(StatusFlag::AuxiliaryCarry), old_value == 15);
+        } else {
+            self.set_flag(Flag::Status(StatusFlag::AuxiliaryCarry), old_value == 16);
         }
 
         self.set_register(&instruction.target, new_value);
@@ -1148,8 +1148,92 @@ impl Computer {
         self.program_counter = new_counter;
     }
 
-    fn step_logic(&mut self, _instruction: &LogicInstruction) {
-        todo!()
+    /// Returns the number of extra clock cycles incurred by misaligned memory access.
+    fn step_logic(&mut self, instruction: &LogicInstruction) -> u8 {
+        if instruction.amount_from_cl {
+            todo!()
+        }
+        match &instruction.op {
+            LogicInstructionType::Shr => match &instruction.target {
+                LogicTarget::Register(reg) => {
+                    if instruction.is_wide {
+                        let current_value = self.get_register(reg);
+                        let new_value = current_value >> 1;
+                        self.set_register(reg, new_value);
+                        if (current_value > 1 << 15) == (new_value > 1 << 15) {
+                            self.set_flag(Flag::Status(StatusFlag::Overflow), false)
+                        } else {
+                            self.set_flag(Flag::Status(StatusFlag::Overflow), true)
+                        }
+                        self.set_flag(
+                            Flag::Status(StatusFlag::Parity),
+                            !Self::is_odd_parity(new_value % 256),
+                        );
+                        self.set_flag(Flag::Status(StatusFlag::Sign), new_value > 1 << 15);
+                        self.set_flag(Flag::Status(StatusFlag::Zero), new_value == 0);
+                        self.set_flag(Flag::Status(StatusFlag::Carry), current_value % 2 == 1);
+                    } else {
+                        let current_value = self.get_register(reg) as u8;
+                        let new_value = current_value >> 1;
+                        self.set_register(reg, new_value as u16);
+                        if (current_value > 1 << 7) == (new_value > 1 << 7) {
+                            self.set_flag(Flag::Status(StatusFlag::Overflow), false)
+                        } else {
+                            self.set_flag(Flag::Status(StatusFlag::Overflow), true)
+                        }
+                        self.set_flag(
+                            Flag::Status(StatusFlag::Parity),
+                            !Self::is_odd_parity(new_value as u16),
+                        );
+                        self.set_flag(Flag::Status(StatusFlag::Sign), new_value > 1 << 7);
+                        self.set_flag(Flag::Status(StatusFlag::Zero), new_value == 0);
+                        self.set_flag(Flag::Status(StatusFlag::Carry), current_value % 2 == 1);
+                    }
+
+                    0
+                }
+                LogicTarget::Address(addr) => {
+                    if instruction.is_wide {
+                        let addr = self.resolve_eaddr(addr);
+                        let (current_value, slow) = self.get_memory_word(addr);
+                        let new_value = current_value >> 1;
+                        let slow_2 = self.set_memory_word(addr, new_value);
+                        if (current_value > 1 << 15) == (new_value > 1 << 15) {
+                            self.set_flag(Flag::Status(StatusFlag::Overflow), false)
+                        } else {
+                            self.set_flag(Flag::Status(StatusFlag::Overflow), true)
+                        }
+                        self.set_flag(
+                            Flag::Status(StatusFlag::Parity),
+                            !Self::is_odd_parity(new_value % 256),
+                        );
+                        self.set_flag(Flag::Status(StatusFlag::Sign), new_value > 1 << 15);
+                        self.set_flag(Flag::Status(StatusFlag::Zero), new_value == 0);
+                        self.set_flag(Flag::Status(StatusFlag::Carry), current_value % 2 == 1);
+                        (if slow { 4 } else { 0 }) + if slow_2 { 4 } else { 0 }
+                    } else {
+                        let addr = self.resolve_eaddr(addr);
+                        let current_value = self.get_memory_byte(addr);
+                        let new_value = current_value >> 1;
+                        self.set_memory_byte(addr, new_value);
+                        if (current_value > 1 << 7) == (new_value > 1 << 7) {
+                            self.set_flag(Flag::Status(StatusFlag::Overflow), false)
+                        } else {
+                            self.set_flag(Flag::Status(StatusFlag::Overflow), true)
+                        }
+                        self.set_flag(
+                            Flag::Status(StatusFlag::Parity),
+                            !Self::is_odd_parity(new_value as u16),
+                        );
+                        self.set_flag(Flag::Status(StatusFlag::Sign), new_value > 1 << 7);
+                        self.set_flag(Flag::Status(StatusFlag::Zero), new_value == 0);
+                        self.set_flag(Flag::Status(StatusFlag::Carry), current_value % 2 == 1);
+                        0
+                    }
+                }
+            },
+            _ => todo!(),
+        }
     }
 
     /// Returns a string description of the jump, and a bool indicating
