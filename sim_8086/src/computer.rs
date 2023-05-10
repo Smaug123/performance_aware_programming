@@ -257,6 +257,7 @@ pub struct Computer {
 struct ResultFlags {
     auxiliary_carry: bool,
     overflow: bool,
+    sign: bool,
     should_write: bool,
     carry: bool,
 }
@@ -633,10 +634,120 @@ impl Computer {
         }
     }
 
-    /// Returns true if the operation overflowed, and true if the value is supposed
-    /// to be written to the destination (so `cmp` returns false), and true if there
-    /// was a carry out of the low-order nibble.
-    fn apply(
+    fn apply_u8(op: ArithmeticOperation, to_arg: u8, incoming_arg_raw: u8) -> (u8, ResultFlags) {
+        let incoming_arg = if incoming_arg_raw >= 128 {
+            u8::MAX - (255 - incoming_arg_raw)
+        } else {
+            incoming_arg_raw
+        };
+
+        match op {
+            ArithmeticOperation::Add => {
+                let result = to_arg as u16 + incoming_arg as u16;
+                let result_flags = ResultFlags {
+                    overflow: (to_arg >= 1 << 7 && incoming_arg >= 1 << 7 && result < 1 << 7)
+                        || (to_arg < 1 << 7 && incoming_arg < 1 << 7 && result > 1 << 7),
+                    auxiliary_carry: (to_arg % 16) + (incoming_arg_raw % 16) >= 16,
+                    should_write: true,
+                    carry: result > u8::MAX as u16,
+                    sign: result > 1 << 7,
+                };
+                ((result % (u8::MAX as u16 + 1)) as u8, result_flags)
+            }
+            ArithmeticOperation::Or => (
+                to_arg | incoming_arg,
+                ResultFlags {
+                    overflow: false,
+                    should_write: true,
+                    carry: false,
+                    auxiliary_carry: false,
+                    sign: false,
+                },
+            ),
+            ArithmeticOperation::AddWithCarry => todo!(),
+            ArithmeticOperation::SubWithBorrow => todo!(),
+            ArithmeticOperation::And => (
+                to_arg & incoming_arg,
+                ResultFlags {
+                    overflow: false,
+                    should_write: true,
+                    auxiliary_carry: false,
+                    carry: true,
+                    sign: false,
+                },
+            ),
+            ArithmeticOperation::Sub => {
+                let auxiliary_carry = to_arg % 16 < incoming_arg_raw % 16;
+                if to_arg < incoming_arg {
+                    let result = u8::MAX - (incoming_arg - to_arg) + 1;
+                    (
+                        result,
+                        ResultFlags {
+                            should_write: true,
+                            overflow: (result < 1 << 7 && to_arg >= 1 << 7),
+                            auxiliary_carry,
+                            carry: true,
+                            sign: result > 1 << 7,
+                        },
+                    )
+                } else {
+                    // We might be wrapping around 0, so check for overflow separately.
+                    let result = to_arg - incoming_arg;
+                    (
+                        result,
+                        ResultFlags {
+                            should_write: true,
+                            overflow: (result < 1 << 7 && to_arg >= 1 << 7),
+                            auxiliary_carry,
+                            carry: false,
+                            sign: result > 1 << 7,
+                        },
+                    )
+                }
+            }
+            ArithmeticOperation::Xor => (
+                to_arg ^ incoming_arg,
+                ResultFlags {
+                    overflow: false,
+                    should_write: true,
+                    auxiliary_carry: false,
+                    carry: false,
+                    sign: false,
+                },
+            ),
+            ArithmeticOperation::Cmp => {
+                // CPAS can all be set by Cmp
+                let auxiliary_carry = to_arg % 16 < incoming_arg_raw % 16;
+                if to_arg < incoming_arg {
+                    let result = u8::MAX - (incoming_arg - to_arg) + 1;
+                    (
+                        result,
+                        ResultFlags {
+                            should_write: false,
+                            auxiliary_carry,
+                            overflow: (result < 1 << 7 && 7 >= 1 << 7),
+                            carry: true,
+                            sign: result > 1 << 7,
+                        },
+                    )
+                } else {
+                    let result = to_arg - incoming_arg;
+                    (
+                        result,
+                        ResultFlags {
+                            should_write: false,
+                            auxiliary_carry,
+                            overflow: (result < 1 << 7 && to_arg >= 1 << 7),
+                            carry: false,
+                            sign: result > 1 << 7,
+                        },
+                    )
+                }
+            }
+        }
+    }
+
+    fn apply_u16(
         op: ArithmeticOperation,
         to_arg: u16,
         incoming_arg_raw: u16,
@@ -658,6 +769,7 @@ impl Computer {
                     auxiliary_carry: (to_arg % 16) + (incoming_arg_raw % 16) >= 16,
                     should_write: true,
                     carry: result > u16::MAX as u32,
+                    sign: result > 1 << 15,
                 };
                 ((result % (u16::MAX as u32 + 1)) as u16, result_flags)
             }
@@ -668,6 +780,7 @@ impl Computer {
                     should_write: true,
                     carry: false,
                     auxiliary_carry: false,
+                    sign: false,
                 },
             ),
             ArithmeticOperation::AddWithCarry => todo!(),
@@ -679,6 +792,7 @@ impl Computer {
                     should_write: true,
                     auxiliary_carry: false,
                     carry: true,
+                    sign: false,
                 },
             ),
             ArithmeticOperation::Sub => {
@@ -692,6 +806,7 @@ impl Computer {
                             overflow: (result < 1 << 15 && to_arg >= 1 << 15),
                             auxiliary_carry,
                             carry: true,
+                            sign: result > 1 << 15,
                         },
                     )
                 } else {
@@ -704,6 +819,7 @@ impl Computer {
                             overflow: (result < 1 << 15 && to_arg >= 1 << 15),
                             auxiliary_carry,
                             carry: false,
+                            sign: result > 1 << 15,
                         },
                     )
                 }
@@ -715,6 +831,7 @@ impl Computer {
                     should_write: true,
                     auxiliary_carry: false,
                     carry: false,
+                    sign: false,
                 },
             ),
             ArithmeticOperation::Cmp => {
@@ -729,6 +846,7 @@ impl Computer {
                             auxiliary_carry,
                             overflow: (result < 1 << 15 && to_arg >= 1 << 15),
                             carry: true,
+                            sign: result > 1 << 15,
                         },
                     )
                 } else {
@@ -740,6 +858,7 @@ impl Computer {
                             auxiliary_carry,
                             overflow: (result < 1 << 15 && to_arg >= 1 << 15),
                             carry: false,
+                            sign: result > 1 << 15,
                         },
                     )
                 }
@@ -768,12 +887,21 @@ impl Computer {
             ArithmeticInstructionSelect::RegisterToRegister(instr) => {
                 let current_value = self.get_register(&instr.dest);
                 let incoming_value = self.get_register(&instr.source);
-                let (new_value, flags) =
-                    Self::apply(instruction.op, current_value, incoming_value, false);
-                if flags.should_write {
-                    self.set_register(&instr.dest, new_value);
+                if instr.dest.is_wide() {
+                    let (new_value, flags) =
+                        Self::apply_u16(instruction.op, current_value, incoming_value, false);
+                    if flags.should_write {
+                        self.set_register(&instr.dest, new_value);
+                    }
+                    (new_value, flags)
+                } else {
+                    let (new_value, flags) =
+                        Self::apply_u8(instruction.op, current_value as u8, incoming_value as u8);
+                    if flags.should_write {
+                        self.set_register(&instr.dest, new_value as u16);
+                    }
+                    (new_value as u16, flags)
                 }
-                (new_value, flags)
             }
             ArithmeticInstructionSelect::RegisterToMemory(instr) => {
                 let dest = self.resolve_eaddr(&instr.dest);
@@ -787,12 +915,13 @@ impl Computer {
                 }
                 let incoming = self.get_register(&instr.source);
 
-                let (new_value, flags) = Self::apply(
-                    instruction.op,
-                    current_value,
-                    incoming,
-                    !instr.source.is_wide(),
-                );
+                let (new_value, flags) = if instr.source.is_wide() {
+                    Self::apply_u16(instruction.op, current_value, incoming, false)
+                } else {
+                    let (result, flags) =
+                        Self::apply_u8(instruction.op, current_value as u8, incoming as u8);
+                    (result as u16, flags)
+                };
 
                 if flags.should_write {
                     if instr.source.is_wide() {
@@ -819,8 +948,13 @@ impl Computer {
                 if slow {
                     slowness += 4;
                 }
-                let (new_value, flags) =
-                    Self::apply(instruction.op, current_value, incoming_value, false);
+                let (new_value, flags) = if instr.dest.is_wide() {
+                    Self::apply_u16(instruction.op, current_value, incoming_value, false)
+                } else {
+                    let (result, flags) =
+                        Self::apply_u8(instruction.op, current_value as u8, incoming_value as u8);
+                    (result as u16, flags)
+                };
                 if flags.should_write {
                     self.set_register(&instr.dest, new_value);
                 }
@@ -829,7 +963,7 @@ impl Computer {
             ArithmeticInstructionSelect::ImmediateToRegisterByte(register, value, is_extended) => {
                 let current_value = self.get_register(register);
                 let (new_value, flags) = if *is_extended {
-                    Self::apply(instruction.op, current_value, *value as u16, *is_extended)
+                    Self::apply_u16(instruction.op, current_value, *value as u16, *is_extended)
                     // Self::apply(instruction.op, current_value, *value as u16)
                 } else {
                     todo!()
@@ -840,9 +974,10 @@ impl Computer {
                 (new_value, flags)
             }
             ArithmeticInstructionSelect::ImmediateToRegisterWord(register, value, is_extended) => {
+                // TODO: why have we not used is_extended
                 let current_value = self.get_register(register);
                 let (new_value, flags) =
-                    Self::apply(instruction.op, current_value, *value, *is_extended);
+                    Self::apply_u16(instruction.op, current_value, *value, *is_extended);
                 if flags.should_write {
                     self.set_register(register, new_value);
                 }
@@ -855,16 +990,20 @@ impl Computer {
             ) => {
                 let location = self.resolve_eaddr(addr);
                 let current_value = self.get_memory_byte(location);
-                let (new_value, flags) = Self::apply(
-                    instruction.op,
-                    current_value as u16,
-                    *value as u16,
-                    *is_extended,
-                );
-                if flags.should_write {
-                    self.set_memory_byte(location, new_value as u8);
+                if *is_extended {
+                    let (new_value, flags) =
+                        Self::apply_u16(instruction.op, current_value as u16, *value as u16, false);
+                    if flags.should_write {
+                        self.set_memory_byte(location, new_value as u8);
+                    }
+                    (new_value, flags)
+                } else {
+                    let (new_value, flags) = Self::apply_u8(instruction.op, current_value, *value);
+                    if flags.should_write {
+                        self.set_memory_byte(location, new_value);
+                    }
+                    (new_value as u16, flags)
                 }
-                (new_value, flags)
             }
             ArithmeticInstructionSelect::ImmediateToRegisterOrMemoryWord(_, _) => todo!(),
             ArithmeticInstructionSelect::ImmediateToAccByte(value) => {
@@ -872,18 +1011,18 @@ impl Computer {
                     GeneralRegister::A,
                     RegisterSubset::Subset(ByteRegisterSubset::Low),
                 );
-                let current_value = self.get_register(&reg);
-                let (new_value, flags) =
-                    Self::apply(instruction.op, current_value, *value as u16, false);
+                let current_value = self.get_register(&reg) as u8;
+                let (new_value, flags) = Self::apply_u8(instruction.op, current_value, *value);
                 if flags.should_write {
-                    self.set_register(&reg, new_value);
+                    self.set_register(&reg, new_value as u16);
                 }
-                (new_value, flags)
+                (new_value as u16, flags)
             }
             ArithmeticInstructionSelect::ImmediateToAccWord(value) => {
                 let reg = Register::General(GeneralRegister::A, RegisterSubset::All);
                 let current_value = self.get_register(&reg);
-                let (new_value, flags) = Self::apply(instruction.op, current_value, *value, false);
+                let (new_value, flags) =
+                    Self::apply_u16(instruction.op, current_value, *value, false);
                 if flags.should_write {
                     self.set_register(&reg, new_value);
                 }
@@ -893,8 +1032,7 @@ impl Computer {
 
         self.set_flag(Flag::Status(StatusFlag::Zero), new_value == 0);
         self.set_flag(Flag::Status(StatusFlag::Overflow), flags.overflow);
-        // TODO: what if this was a byte instruction instead
-        self.set_flag(Flag::Status(StatusFlag::Sign), new_value & 0x8000 > 0);
+        self.set_flag(Flag::Status(StatusFlag::Sign), flags.sign);
         self.set_flag(
             Flag::Status(StatusFlag::AuxiliaryCarry),
             flags.auxiliary_carry,
@@ -1147,6 +1285,7 @@ impl Computer {
         };
 
         if stop {
+            self.program_counter -= 1; // compensate for pre-incrementing
             (
                 format!(
                     "STOPONRET: Return encountered at address {}.",
