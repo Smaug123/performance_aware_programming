@@ -644,15 +644,16 @@ impl Computer {
         match op {
             ArithmeticOperation::Add => {
                 let result = to_arg as u16 + incoming_arg as u16;
+                let to_ret = (result % (u8::MAX as u16 + 1)) as u8;
                 let result_flags = ResultFlags {
                     overflow: (to_arg >= 1 << 7 && incoming_arg >= 1 << 7 && result < 1 << 7)
                         || (to_arg < 1 << 7 && incoming_arg < 1 << 7 && result > 1 << 7),
                     auxiliary_carry: (to_arg % 16) + (incoming_arg_raw % 16) >= 16,
                     should_write: true,
                     carry: result > u8::MAX as u16,
-                    sign: result > 1 << 7,
+                    sign: to_ret > 1 << 7,
                 };
-                ((result % (u8::MAX as u16 + 1)) as u8, result_flags)
+                (to_ret, result_flags)
             }
             ArithmeticOperation::Or => (
                 to_arg | incoming_arg,
@@ -763,15 +764,16 @@ impl Computer {
         match op {
             ArithmeticOperation::Add => {
                 let result = to_arg as u32 + incoming_arg as u32;
+                let to_ret = (result % (u16::MAX as u32 + 1)) as u16;
                 let result_flags = ResultFlags {
                     overflow: (to_arg >= 1 << 15 && incoming_arg >= 1 << 15 && result < 1 << 15)
                         || (to_arg < 1 << 15 && incoming_arg < 1 << 15 && result > 1 << 15),
                     auxiliary_carry: (to_arg % 16) + (incoming_arg_raw % 16) >= 16,
                     should_write: true,
                     carry: result > u16::MAX as u32,
-                    sign: result > 1 << 15,
+                    sign: to_ret > 1 << 15,
                 };
-                ((result % (u16::MAX as u32 + 1)) as u16, result_flags)
+                (to_ret, result_flags)
             }
             ArithmeticOperation::Or => (
                 to_arg | incoming_arg,
