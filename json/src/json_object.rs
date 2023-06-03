@@ -10,7 +10,7 @@ pub enum JsonValue {
 }
 
 pub struct JsonObject {
-    values: HashMap<String, JsonValue>,
+    pub values: HashMap<String, JsonValue>,
 }
 
 #[derive(Debug)]
@@ -33,6 +33,9 @@ pub enum JsonObjectParseError {
     NoColon(Option<char>),
     UnrecognisedAfterValue(char),
     NothingAfterComma,
+    /// Can't have a circular dependency, so this contains no data; it wants to hold
+    /// a JsonValueParseError.
+    ObjectFailedToParse,
 }
 
 #[derive(Debug)]
@@ -87,6 +90,12 @@ impl From<JsonArrayParseError> for JsonValueParseError {
 impl From<JsonNumberParseError> for JsonValueParseError {
     fn from(value: JsonNumberParseError) -> Self {
         Self::Number(value)
+    }
+}
+
+impl From<JsonValueParseError> for JsonObjectParseError {
+    fn from(_value: JsonValueParseError) -> Self {
+        Self::ObjectFailedToParse
     }
 }
 
@@ -319,15 +328,30 @@ impl JsonValue {
     /// character after the JSON value. Returns that non-whitespace character in the Ok case.
     pub(crate) fn parse_iter<I>(
         chars: &mut I,
+        first_char: Option<char>,
     ) -> Result<(JsonValue, Option<char>), JsonValueParseError>
     where
         I: Iterator<Item = char>,
     {
-        let first_char = match consume_whitespace(chars) {
-            None => {
-                return Err(JsonValueParseError::Empty);
+        let first_char = match first_char {
+            None => match consume_whitespace(chars) {
+                None => {
+                    return Err(JsonValueParseError::Empty);
+                }
+                Some(c) => c,
+            },
+            Some(first_char) => {
+                if is_whitespace(first_char) {
+                    match consume_whitespace(chars) {
+                        None => {
+                            return Err(JsonValueParseError::Empty);
+                        }
+                        Some(c) => c,
+                    }
+                } else {
+                    first_char
+                }
             }
-            Some(c) => c,
         };
 
         let (result, next_char) = match first_char {
@@ -409,11 +433,11 @@ impl JsonValue {
         }
     }
 
-    pub fn parse<I>(chars: &mut I) -> Result<JsonValue, JsonValueParseError>
+    pub fn parse<I>(chars: &mut I) -> Result<(JsonValue, Option<char>), JsonValueParseError>
     where
         I: Iterator<Item = char>,
     {
-        Self::parse_iter(chars, true)
+        Self::parse_iter(chars, None)
     }
 }
 
@@ -468,7 +492,7 @@ impl JsonObject {
                 Some(c) => return Err(JsonObjectParseError::NoColon(Some(c))),
             }
 
-            let (value, next_char) = JsonValue::parse_iter(chars)?;
+            let (value, next_char) = JsonValue::parse_iter(chars, None)?;
 
             values.insert(key, value);
 
@@ -497,7 +521,8 @@ mod test {
   "subjects": ["Maths", "English", "Science"]
 }"#;
 
-        let obj = JsonValue::parse(&mut s.chars()).unwrap();
+        let (obj, remaining) = JsonValue::parse(&mut s.chars()).unwrap();
+        assert_eq!(remaining, None);
         if let JsonValue::Object(o) = obj {
             if let JsonValue::String(name) = o.values.get("name").unwrap() {
                 assert_eq!(name, "John Doe")
@@ -545,7 +570,7 @@ mod test {
     }
 }"#;
         let obj = match JsonValue::parse(&mut s.chars()).unwrap() {
-            JsonValue::Object(o) => o,
+            (JsonValue::Object(o), Some('\n')) => o,
             _ => panic!("bad object"),
         };
         let obj = match obj.values.get("employee").unwrap() {
@@ -590,7 +615,7 @@ mod test {
 ]
 "#;
         let arr = match JsonValue::parse(&mut s.chars()).unwrap() {
-            JsonValue::Array(a) => a,
+            (JsonValue::Array(a), Some('\n')) => a,
             _ => panic!("bad object"),
         };
 
@@ -622,7 +647,7 @@ mod test {
         }"#;
 
         let o = match JsonValue::parse(&mut s.chars()).unwrap() {
-            JsonValue::Object(o) => o,
+            (JsonValue::Object(o), None) => o,
             _ => panic!("bad object"),
         };
 
@@ -644,8 +669,7 @@ mod test {
         let s = r#"{
   "firstName": "John"
   "lastName": "Doe"
-}
-"#;
+}"#;
 
         let error = match JsonValue::parse(&mut s.chars()) {
             Err(JsonValueParseError::Object(o)) => o,
