@@ -4,3 +4,6 @@ target/
 .vscode/
 .profile*
 .DS_Store
+
+data_*_flex.json
+data_*_haveranswer.f64
