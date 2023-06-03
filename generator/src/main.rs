@@ -4,7 +4,7 @@ use haversine::haversine::{CoordinatePair, HaversineData};
 use haversine::{distance, earth};
 use rand::distributions::Distribution;
 use rand::rngs::StdRng;
-use rand::SeedableRng;
+use rand::{Rng, SeedableRng};
 use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::{BufWriter, Read, Write};
@@ -74,7 +74,7 @@ fn write_answer(data: &HaversineData, binary_filename: &str) {
     let mut expected_sum: f64 = 0.0;
 
     let mut buf = [0u8; 8];
-    for (count, point) in data.pairs.iter().enumerate() {
+    for point in &data.pairs {
         let distance = distance::naive(point, earth::RADIUS);
         LittleEndian::write_f64(&mut buf, distance);
 
@@ -83,8 +83,7 @@ fn write_answer(data: &HaversineData, binary_filename: &str) {
             panic!("Failed to write everything")
         }
 
-        expected_sum = expected_sum * (count as f64 / ((count + 1) as f64))
-            + (distance / ((count + 1) as f64));
+        expected_sum += distance;
     }
 
     println!("Expected sum: {}", expected_sum);
@@ -132,6 +131,30 @@ fn read_answer(binary_filename: &str) -> (Vec<f64>, f64) {
     (data, LittleEndian::read_f64(&buf))
 }
 
+fn point_within(
+    point: &CoordinatePair,
+    cluster_centre_x: f64,
+    cluster_centre_y: f64,
+    cluster_radius: f64,
+) -> bool {
+    let mut distance = CoordinatePair {
+        x0: point.x0,
+        y0: point.y0,
+        x1: cluster_centre_x,
+        y1: cluster_centre_y,
+    };
+    if distance::naive(&distance, 1.0) > cluster_radius {
+        return false;
+    }
+
+    distance.x0 = point.x1;
+    distance.y0 = point.y1;
+
+    distance::naive(&distance, 1.0) <= cluster_radius
+}
+
+const CLUSTER_COUNT: usize = 20;
+
 fn main() {
     let args = Args::parse();
     println!("Method: {}", args.algorithm);
@@ -141,11 +164,12 @@ fn main() {
     let mut v = Vec::with_capacity(args.count);
     let mut rng = StdRng::seed_from_u64(args.seed);
 
+    let x_range = rand::distributions::Uniform::from(-180.0..180.0);
+    let y_range = rand::distributions::Uniform::from(-90.0..90.0);
+
     match args.algorithm {
         SelectionAlgorithm::Uniform => {
             for _ in 0usize..args.count {
-                let x_range = rand::distributions::Uniform::from(-180.0..180.0);
-                let y_range = rand::distributions::Uniform::from(-90.0..90.0);
                 let point = CoordinatePair {
                     x0: x_range.sample(&mut rng),
                     y0: y_range.sample(&mut rng),
@@ -157,17 +181,39 @@ fn main() {
             }
         }
         SelectionAlgorithm::Cluster => {
-            for _ in 0usize..args.count {
-                let x_range = rand::distributions::Uniform::from(-180.0..180.0);
-                let y_range = rand::distributions::Uniform::from(-90.0..90.0);
-                let point = CoordinatePair {
-                    x0: x_range.sample(&mut rng),
-                    y0: y_range.sample(&mut rng),
-                    x1: x_range.sample(&mut rng),
-                    y1: y_range.sample(&mut rng),
-                };
+            if args.count % CLUSTER_COUNT != 0 {
+                panic!(
+                    "Number of points {} is not a multiple of cluster count {CLUSTER_COUNT}",
+                    args.count
+                );
+            }
 
-                v.push(point);
+            for _ in 0..CLUSTER_COUNT {
+                // Uniformly sampling over lat/long pairs is dumb and biased towards the poles,
+                // but :shrug: we'll just bias it away a bit by hand.
+                let cluster_centre_x = x_range.sample(&mut rng);
+                // Bias a bit away from the pole by shrinking it
+                let cluster_centre_y = y_range.sample(&mut rng) * 0.9;
+                let cluster_radius = rng.gen_range(0.1..0.4);
+
+                for _ in 0..args.count / CLUSTER_COUNT {
+                    let mut point = CoordinatePair {
+                        x0: 0.0,
+                        y0: 0.0,
+                        x1: 0.0,
+                        // too big to ever be in the right place, so a suitable uninitialised value
+                        y1: 1000.0,
+                    };
+                    while !point_within(&point, cluster_centre_x, cluster_centre_y, cluster_radius)
+                    {
+                        point.x0 = x_range.sample(&mut rng);
+                        point.y0 = y_range.sample(&mut rng);
+                        point.x1 = x_range.sample(&mut rng);
+                        point.y1 = y_range.sample(&mut rng);
+                    }
+
+                    v.push(point);
+                }
             }
         }
     }
