@@ -1,11 +1,10 @@
 use byteorder::{ByteOrder, LittleEndian};
 use clap::{builder::PossibleValue, Parser, ValueEnum};
-use haversine::distance;
 use haversine::haversine::{CoordinatePair, HaversineData};
+use haversine::{distance, earth};
 use rand::distributions::Distribution;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
-use serde_json::Serializer;
 use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -76,7 +75,7 @@ fn write_answer(data: &HaversineData, binary_filename: &str) {
 
     let mut buf = [0u8; 8];
     for (count, point) in data.pairs.iter().enumerate() {
-        let distance = distance::naive(point);
+        let distance = distance::naive(point, earth::RADIUS);
         LittleEndian::write_f64(&mut buf, distance);
 
         let written = writer.write(&buf).unwrap();
@@ -110,7 +109,7 @@ fn main() {
 
     match args.algorithm {
         SelectionAlgorithm::Uniform => {
-            for count in 0usize..args.count {
+            for _ in 0usize..args.count {
                 let x_range = rand::distributions::Uniform::from(-180.0..180.0);
                 let y_range = rand::distributions::Uniform::from(-90.0..90.0);
                 let point = CoordinatePair {
@@ -124,7 +123,7 @@ fn main() {
             }
         }
         SelectionAlgorithm::Cluster => {
-            for count in 0usize..args.count {
+            for _ in 0usize..args.count {
                 let x_range = rand::distributions::Uniform::from(-180.0..180.0);
                 let y_range = rand::distributions::Uniform::from(-90.0..90.0);
                 let point = CoordinatePair {
