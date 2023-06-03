@@ -3,7 +3,8 @@ members = [
     "sim_8086",
     "wrapper",
     "generator",
-    "haversine"
+    "haversine",
+    "json"
 ]
 
 [profile.release]
