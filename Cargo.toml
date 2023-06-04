@@ -3,10 +3,11 @@ members = [
     "sim_8086",
     "wrapper",
     "generator",
-    "haversine"
+    "haversine",
+    "json"
 ]
 
 [profile.release]
 lto = true
 strip = true
-panic = 'abort'
+panic = "abort"
