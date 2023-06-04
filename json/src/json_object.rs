@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+#[derive(Debug)]
 pub enum JsonValue {
     Object(JsonObject),
     Array(Vec<JsonValue>),
@@ -9,6 +10,7 @@ pub enum JsonValue {
     Null,
 }
 
+#[derive(Debug)]
 pub struct JsonObject {
     pub values: HashMap<String, JsonValue>,
 }
@@ -23,24 +25,29 @@ pub enum JsonValueParseError {
     Array(JsonArrayParseError),
     String(JsonStringParseError),
     Number(JsonNumberParseError),
+    /// Specifically here to allow the array parser to know if there were no
+    /// array contents.
+    UnexpectedCloseBracket,
 }
 
 #[derive(Debug)]
 pub enum JsonObjectParseError {
     NoInitialBrace(Option<char>),
     NoClosingBrace,
+    TrailingComma,
     String(JsonStringParseError),
     NoColon(Option<char>),
     UnrecognisedAfterValue(char),
     NothingAfterComma,
-    /// Can't have a circular dependency, so this contains no data; it wants to hold
-    /// a JsonValueParseError.
-    ObjectFailedToParse,
+    ObjectFailedToParse(Box<JsonValueParseError>),
 }
 
 #[derive(Debug)]
 pub enum JsonArrayParseError {
     NoInitialBracket(Option<char>),
+    Value(Box<JsonValueParseError>),
+    EndOfStream,
+    NoComma(char),
 }
 
 #[derive(Debug)]
@@ -94,17 +101,14 @@ impl From<JsonNumberParseError> for JsonValueParseError {
 }
 
 impl From<JsonValueParseError> for JsonObjectParseError {
-    fn from(_value: JsonValueParseError) -> Self {
-        Self::ObjectFailedToParse
+    fn from(value: JsonValueParseError) -> Self {
+        Self::ObjectFailedToParse(Box::new(value))
     }
 }
 
 /// The JSON spec is clear about what constitutes whitespace.
 const fn is_whitespace(c: char) -> bool {
-    match c as u32 {
-        9 | 10 | 13 | 32 => true,
-        _ => false,
-    }
+    matches!(c as u32, 9 | 10 | 13 | 32)
 }
 
 /// Consume whitespace until the first non-whitespace character, returning that character
@@ -114,12 +118,7 @@ fn consume_whitespace<I>(iter: &mut I) -> Option<char>
 where
     I: Iterator<Item = char>,
 {
-    while let Some(c) = iter.next() {
-        if !is_whitespace(c) {
-            return Some(c);
-        }
-    }
-    None
+    iter.by_ref().find(|&c| !is_whitespace(c))
 }
 
 /// Leaves the iterator sitting on the first unparsed character, and returns that character as well
@@ -136,26 +135,23 @@ where
     let mut integer_part = 0f64;
     let mut fractional_part = 0f64;
 
-    match current {
-        '-' => {
-            negative = -1.0;
-            current = match iter.next() {
-                None => return Err(JsonNumberParseError::NothingAfterMinus),
-                Some(c) => c,
-            }
+    if current == '-' {
+        negative = -1.0;
+        current = match iter.next() {
+            None => return Err(JsonNumberParseError::NothingAfterMinus),
+            Some(c) => c,
         }
-        _ => {}
     };
 
     if current != '0' {
         if ('1'..='9').contains(&current) {
-            integer_part = (current as u8 - b'1') as f64;
+            integer_part = (current as u8 - b'0') as f64;
             loop {
                 current = match iter.next() {
                     None => return Ok((negative * integer_part, None)),
                     Some(v) => v,
                 };
-                if ('0'..='9').contains(&current) {
+                if current.is_ascii_digit() {
                     integer_part = integer_part * 10.0 + ((current as u8 - b'0') as f64)
                 } else {
                     break;
@@ -174,7 +170,7 @@ where
                 None => return Ok((negative * (integer_part + fractional_part), None)),
                 Some(v) => v,
             };
-            if ('0'..='9').contains(&current) {
+            if current.is_ascii_digit() {
                 fractional_part += multiplier * ((current as u8 - b'0') as f64);
                 multiplier *= 0.1;
             } else {
@@ -200,10 +196,10 @@ where
             None => return Ok((negative * (integer_part + fractional_part), None)),
             Some(v) => v,
         };
-        if ('0'..='9').contains(&current) {
+        if current.is_ascii_digit() {
             exponent = exponent * 10.0 + ((current as u8 - b'0') as f64);
         } else {
-            let to_ret = todo!();
+            let to_ret = if negative_exp { todo!() } else { todo!() };
             return Ok((to_ret, Some(current)));
         }
     }
@@ -217,7 +213,7 @@ where
     let v = match iter.next() {
         None => return Err(JsonStringParseError::EndOfFile),
         Some(c) => {
-            if ('0'..='9').contains(&c) {
+            if c.is_ascii_digit() {
                 (c as u8) - b'0'
             } else if ('A'..='F').contains(&c) {
                 (c as u8) - b'A' + 10
@@ -297,7 +293,8 @@ where
     }
 }
 
-/// Leaves the iterator sitting on the final ']'.
+/// Leaves the iterator sitting on the final ']'. Assumes that the iterator has consumed the first
+/// '[' if `expect_bracket` is false.
 fn consume_array<I>(
     chars: &mut I,
     expect_bracket: bool,
@@ -320,7 +317,26 @@ where
 
     let mut result: Vec<JsonValue> = Vec::new();
 
-    todo!()
+    loop {
+        let (v, next_char) = match JsonValue::parse_iter(chars, None) {
+            Err(JsonValueParseError::UnexpectedCloseBracket) => {
+                return Ok(result);
+            }
+            Err(v) => return Err(JsonArrayParseError::Value(Box::new(v))),
+            Ok(r) => r,
+        };
+        result.push(v);
+        match next_char {
+            None => {
+                return Err(JsonArrayParseError::EndOfStream);
+            }
+            Some(']') => {
+                return Ok(result);
+            }
+            Some(',') => {}
+            Some(c) => return Err(JsonArrayParseError::NoComma(c)),
+        }
+    }
 }
 
 impl JsonValue {
@@ -416,6 +432,9 @@ impl JsonValue {
                 }
                 (JsonValue::Null, chars.next())
             }
+            ']' => {
+                return Err(JsonValueParseError::UnexpectedCloseBracket);
+            }
             current => {
                 let (number, next_char) = consume_number(chars, current)?;
                 (JsonValue::Number(number), next_char)
@@ -464,6 +483,7 @@ impl JsonObject {
         }
 
         let mut values = HashMap::new();
+        let mut has_looped = false;
 
         loop {
             let key = match consume_whitespace(chars) {
@@ -472,9 +492,13 @@ impl JsonObject {
                 }
                 Some(c) => {
                     if c == '}' {
-                        return Ok(JsonObject {
-                            values: HashMap::new(),
-                        });
+                        if has_looped {
+                            // There was a trailing comma.
+                            return Err(JsonObjectParseError::TrailingComma);
+                        } else {
+                            // No entries, so it's an empty object.
+                            return Ok(JsonObject { values });
+                        }
                     } else if c != '"' {
                         return Err(JsonObjectParseError::String(
                             JsonStringParseError::NotQuoted(c),
@@ -499,7 +523,9 @@ impl JsonObject {
             match next_char {
                 Some('}') => return Ok(JsonObject { values }),
                 None => return Err(JsonObjectParseError::NoClosingBrace),
-                Some(',') => {}
+                Some(',') => {
+                    has_looped = true;
+                }
                 Some(c) => return Err(JsonObjectParseError::UnrecognisedAfterValue(c)),
             };
         }
@@ -570,7 +596,7 @@ mod test {
     }
 }"#;
         let obj = match JsonValue::parse(&mut s.chars()).unwrap() {
-            (JsonValue::Object(o), Some('\n')) => o,
+            (JsonValue::Object(o), None) => o,
             _ => panic!("bad object"),
         };
         let obj = match obj.values.get("employee").unwrap() {
@@ -615,8 +641,8 @@ mod test {
 ]
 "#;
         let arr = match JsonValue::parse(&mut s.chars()).unwrap() {
-            (JsonValue::Array(a), Some('\n')) => a,
-            _ => panic!("bad object"),
+            (JsonValue::Array(a), None) => a,
+            e => panic!("bad object: {:?}", e),
         };
 
         let forenames = arr
@@ -677,7 +703,7 @@ mod test {
         };
 
         match error {
-            JsonObjectParseError::NoColon(Some('\n')) => {}
+            JsonObjectParseError::UnrecognisedAfterValue('"') => {}
             _ => panic!("bad error"),
         }
     }
@@ -696,8 +722,8 @@ mod test {
         };
 
         match error {
-            JsonObjectParseError::UnrecognisedAfterValue(',') => {}
-            _ => panic!("bad error"),
+            JsonObjectParseError::TrailingComma => {}
+            e => panic!("bad error: {:?}", e),
         }
     }
 
