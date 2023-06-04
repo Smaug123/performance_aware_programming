@@ -143,23 +143,26 @@ where
         }
     };
 
-    if current != '0' {
-        if ('1'..='9').contains(&current) {
-            integer_part = (current as u8 - b'0') as f64;
-            loop {
-                current = match iter.next() {
-                    None => return Ok((negative * integer_part, None)),
-                    Some(v) => v,
-                };
-                if current.is_ascii_digit() {
-                    integer_part = integer_part * 10.0 + ((current as u8 - b'0') as f64)
-                } else {
-                    break;
-                }
-            }
-        } else {
-            return Err(JsonNumberParseError::NonDigit(current));
+    if current == '0' {
+        current = match iter.next() {
+            Some(v) => v,
+            None => return Ok((negative * 0.0, None)),
         }
+    } else if ('1'..='9').contains(&current) {
+        integer_part = (current as u8 - b'0') as f64;
+        loop {
+            current = match iter.next() {
+                None => return Ok((negative * integer_part, None)),
+                Some(v) => v,
+            };
+            if current.is_ascii_digit() {
+                integer_part = integer_part * 10.0 + ((current as u8 - b'0') as f64)
+            } else {
+                break;
+            }
+        }
+    } else {
+        return Err(JsonNumberParseError::NonDigit(current));
     }
 
     // Parse fraction
@@ -881,5 +884,20 @@ mod test {
                 panic!("Unexpected error: {:?}", e)
             }
         }
+    }
+
+    #[test]
+    fn negative_number() {
+        let (parsed, remaining) = JsonValue::parse(&mut "-0.8".chars()).unwrap();
+        assert_eq!(remaining, None);
+        assert_eq!(parsed.as_number(), -0.8);
+    }
+
+    #[test]
+    fn haversine_example() {
+        let s = include_str!("example.json");
+        let parsed = parse_object(&s);
+        let o = parsed.values.get("pairs").unwrap().as_array();
+        assert_eq!(o.len(), 20);
     }
 }

@@ -26,15 +26,19 @@ fn read_answer(binary_filename: &str) -> (Vec<f64>, f64) {
     }
     let num_floats = file_size / 8;
     assert_ne!(num_floats, 0, "Empty file");
-    let num_bytes = num_floats - 1;
+    let num_floats = num_floats - 1;
 
-    let mut data = Vec::with_capacity(num_bytes as usize);
-    let mut buf = [0u8, 8];
+    let mut data = Vec::with_capacity(num_floats as usize);
+    let mut buf = [0u8; 8];
 
     for _ in 0..num_floats {
-        let bytes_read = file.read(&mut buf).unwrap();
-        if bytes_read < 8 {
-            panic!("Not enough bytes read")
+        let mut bytes_read = 0;
+        while bytes_read < 8 {
+            let new_bytes = file.read(&mut buf[bytes_read..]).unwrap();
+            if new_bytes == 0 {
+                panic!("Reached end of file");
+            }
+            bytes_read += new_bytes;
         }
 
         data.push(LittleEndian::read_f64(&buf));
@@ -78,17 +82,18 @@ fn haversine_sum(v: &[CoordinatePair]) -> f64 {
     for pair in v {
         answer += distance::naive(pair, earth::RADIUS);
     }
-    answer
+    answer / (v.len() as f64)
 }
 
 fn main() {
     let args = Args::parse();
     let input = read_json(&args.input_json);
     let (_expected_values, expected_sum) = read_answer(&args.expected);
+    let actual_sum = haversine_sum(&input);
     println!("Pair count: {}", input.len());
+    println!("Haversine sum: {}", actual_sum);
 
     println!("Validation:");
     println!("Reference sum: {}", expected_sum);
-    let actual_sum = haversine_sum(&input);
     println!("Difference: {}", f64::abs(expected_sum - actual_sum));
 }
