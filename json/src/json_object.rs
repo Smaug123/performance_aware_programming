@@ -193,14 +193,18 @@ where
 
     loop {
         current = match iter.next() {
-            None => return Ok((negative * (integer_part + fractional_part), None)),
+            None => {
+                let pow = 10.0_f64.powf(negative_exp * exponent);
+                let to_ret = negative * (integer_part + fractional_part) * pow;
+                return Ok((to_ret, None));
+            }
             Some(v) => v,
         };
         if current.is_ascii_digit() {
             exponent = exponent * 10.0 + ((current as u8 - b'0') as f64);
         } else {
             let pow = 10.0_f64.powf(negative_exp * exponent);
-            let to_ret = negative * integer_part * pow;
+            let to_ret = negative * (integer_part + fractional_part) * pow;
             return Ok((to_ret, Some(current)));
         }
     }
@@ -288,6 +292,8 @@ where
             return Ok(result);
         } else if char as u32 <= 31 {
             return Err(JsonStringParseError::UnescapedControlChar(char));
+        } else if char == '\\' {
+            is_control_character = true;
         } else {
             result.push(char);
         }
@@ -536,8 +542,23 @@ impl JsonObject {
 #[cfg(test)]
 mod test {
     use crate::json_object::{
-        JsonObjectParseError, JsonStringParseError, JsonValue, JsonValueParseError,
+        JsonObject, JsonObjectParseError, JsonStringParseError, JsonValue, JsonValueParseError,
     };
+
+    fn parse_object(s: &str) -> JsonObject {
+        match JsonValue::parse(&mut s.chars()) {
+            Err(e) => {
+                panic!("Expected to parse object, got {:?}", e)
+            }
+            Ok((obj, None)) => match obj {
+                JsonValue::Object(o) => o,
+                other => panic!("Unexpectedly not an object: {:?}", other),
+            },
+            Ok((_, Some(c))) => {
+                panic!("Parsed successfully but had leftover char '{c}'");
+            }
+        }
+    }
 
     #[test]
     fn test_simple() {
@@ -548,38 +569,33 @@ mod test {
   "subjects": ["Maths", "English", "Science"]
 }"#;
 
-        let (obj, remaining) = JsonValue::parse(&mut s.chars()).unwrap();
-        assert_eq!(remaining, None);
-        if let JsonValue::Object(o) = obj {
-            if let JsonValue::String(name) = o.values.get("name").unwrap() {
-                assert_eq!(name, "John Doe")
-            } else {
-                panic!("oh no")
-            }
-            if let JsonValue::Boolean(is_student) = o.values.get("isStudent").unwrap() {
-                assert_eq!(*is_student, false)
-            } else {
-                panic!("oh no")
-            }
-            if let JsonValue::Number(age) = o.values.get("age").unwrap() {
-                assert_eq!(*age, 32.0)
-            } else {
-                panic!("oh no")
-            }
-            if let JsonValue::Array(subjects) = o.values.get("subjects").unwrap() {
-                let subjects = subjects
-                    .iter()
-                    .map(|v| match v {
-                        JsonValue::String(s) => s,
-                        _ => panic!("oh no"),
-                    })
-                    .collect::<Vec<_>>();
-                assert_eq!(subjects, ["Maths", "English", "Science"])
-            } else {
-                panic!("oh no")
-            }
+        let obj = parse_object(s);
+        if let JsonValue::String(name) = obj.values.get("name").unwrap() {
+            assert_eq!(name, "John Doe")
         } else {
-            panic!("bad object")
+            panic!("oh no")
+        }
+        if let JsonValue::Boolean(is_student) = obj.values.get("isStudent").unwrap() {
+            assert_eq!(*is_student, false)
+        } else {
+            panic!("oh no")
+        }
+        if let JsonValue::Number(age) = obj.values.get("age").unwrap() {
+            assert_eq!(*age, 32.0)
+        } else {
+            panic!("oh no")
+        }
+        if let JsonValue::Array(subjects) = obj.values.get("subjects").unwrap() {
+            let subjects = subjects
+                .iter()
+                .map(|v| match v {
+                    JsonValue::String(s) => s,
+                    _ => panic!("oh no"),
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(subjects, ["Maths", "English", "Science"])
+        } else {
+            panic!("oh no")
         }
     }
 
@@ -596,10 +612,7 @@ mod test {
         }
     }
 }"#;
-        let obj = match JsonValue::parse(&mut s.chars()).unwrap() {
-            (JsonValue::Object(o), None) => o,
-            _ => panic!("bad object"),
-        };
+        let obj = parse_object(s);
         let obj = match obj.values.get("employee").unwrap() {
             JsonValue::Object(o) => o,
             _ => panic!("bad object"),
@@ -673,10 +686,7 @@ mod test {
             "lastName": null
         }"#;
 
-        let o = match JsonValue::parse(&mut s.chars()).unwrap() {
-            (JsonValue::Object(o), None) => o,
-            _ => panic!("bad object"),
-        };
+        let o = parse_object(s);
 
         match o.values.get("firstName").unwrap() {
             JsonValue::String(s) => {
@@ -744,6 +754,111 @@ mod test {
         match error {
             JsonObjectParseError::String(JsonStringParseError::NotQuoted('\'')) => {}
             _ => panic!("bad error"),
+        }
+    }
+
+    #[test]
+    fn unicode_literal() {
+        let s = r#"{
+  "name": "John Doe",
+  "message": "Hello, world! \u03a9"
+}"#;
+        let o = parse_object(s);
+
+        match o.values.get("name").unwrap() {
+            JsonValue::String(s) => {
+                assert_eq!(s, "John Doe");
+            }
+            _ => panic!("bad object"),
+        }
+
+        match o.values.get("message").unwrap() {
+            JsonValue::String(s) => {
+                assert_eq!(s, "Hello, world! Ω");
+            }
+            _ => panic!("bad object"),
+        }
+    }
+
+    #[test]
+    fn exponents() {
+        let s = r#"{
+  "scientific notation": 1.23e-6,
+  "largeNumber": 1.2E+6
+}"#;
+        let o = parse_object(s);
+
+        match o.values.get("scientific notation").unwrap() {
+            JsonValue::Number(actual) => {
+                let expected = 1.23e-6_f64;
+                // Rust chose the float immediately above 1.23e-6; my computation
+                // chose the float immediately below.
+                let delta = expected - *actual;
+                assert_eq!(delta, 2.1175823681357508E-22);
+            }
+            e => {
+                panic!("bad value: {:?}", e)
+            }
+        }
+
+        match o.values.get("largeNumber").unwrap() {
+            JsonValue::Number(n) => {
+                assert_eq!(*n, 1.2e6_f64);
+            }
+            _ => panic!("bad value"),
+        }
+    }
+
+    #[test]
+    fn escaped_character() {
+        let s = r#"{
+  "stringWithEscapedChars": "Hello, \"World\"!"
+}"#;
+
+        let o = parse_object(s);
+
+        match o.values.get("stringWithEscapedChars").unwrap() {
+            JsonValue::String(s) => {
+                assert_eq!(s, r#"Hello, "World"!"#);
+            }
+            _ => panic!("bad value"),
+        }
+    }
+
+    #[test]
+    fn special_chars() {
+        let s = r#"{
+  "stringWithSpecialChars": "Tab:\t, New Line:\n, Carriage Return:\r"
+}"#;
+        let o = parse_object(s);
+
+        match o.values.get("stringWithSpecialChars").unwrap() {
+            JsonValue::String(s) => {
+                assert_eq!(s, "Tab:\t, New Line:\n, Carriage Return:\r");
+            }
+            _ => panic!("bad value"),
+        }
+    }
+
+    #[test]
+    fn unescaped_control() {
+        let s = "{ \"stringWithControlChar\": \"Hello,\u{8} world!\" }";
+
+        let error = match JsonValue::parse(&mut s.chars()) {
+            Ok(o) => {
+                panic!("Unexpectedly parsed: {:?}", o)
+            }
+            Err(JsonValueParseError::Object(JsonObjectParseError::ObjectFailedToParse(v))) => v,
+            Err(e) => {
+                panic!("Unexpected error: {:?}", e)
+            }
+        };
+
+        match error.as_ref() {
+            JsonValueParseError::String(JsonStringParseError::UnescapedControlChar('\u{8}')) => {}
+            e => {
+                panic!("Unexpected error: {:?}", e)
+            }
         }
     }
 }
