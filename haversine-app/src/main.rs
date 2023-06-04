@@ -1,6 +1,7 @@
 use byteorder::{ByteOrder, LittleEndian};
 use clap::Parser;
 use haversine::haversine::CoordinatePair;
+use haversine::{distance, earth};
 use json::json_object::JsonValue;
 use std::fs::File;
 use std::io::{BufReader, Read};
@@ -15,7 +16,7 @@ struct Args {
 }
 
 fn read_answer(binary_filename: &str) -> (Vec<f64>, f64) {
-    let mut file = File::create(binary_filename).unwrap();
+    let mut file = File::open(binary_filename).unwrap();
     let file_size = file.metadata().unwrap().len();
     if file_size % 8 != 0 {
         panic!(
@@ -48,7 +49,7 @@ fn read_answer(binary_filename: &str) -> (Vec<f64>, f64) {
 }
 
 fn read_json(json_filename: &str) -> Vec<CoordinatePair> {
-    let file = File::create(json_filename).unwrap();
+    let file = File::open(json_filename).unwrap();
     let reader = BufReader::new(file);
     let mut decoder = Reader::new(reader);
     match JsonValue::parse(&mut decoder.into_iter().map(|x| x.unwrap())).unwrap() {
@@ -72,9 +73,22 @@ fn read_json(json_filename: &str) -> Vec<CoordinatePair> {
     }
 }
 
+fn haversine_sum(v: &[CoordinatePair]) -> f64 {
+    let mut answer = 0.0_f64;
+    for pair in v {
+        answer += distance::naive(pair, earth::RADIUS);
+    }
+    answer
+}
+
 fn main() {
     let args = Args::parse();
     let input = read_json(&args.input_json);
-    let expected = read_answer(&args.expected);
-    println!("Hello, world!");
+    let (_expected_values, expected_sum) = read_answer(&args.expected);
+    println!("Pair count: {}", input.len());
+
+    println!("Validation:");
+    println!("Reference sum: {}", expected_sum);
+    let actual_sum = haversine_sum(&input);
+    println!("Difference: {}", f64::abs(expected_sum - actual_sum));
 }
