@@ -7,7 +7,7 @@ use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use std::fmt::{Display, Formatter};
 use std::fs::File;
-use std::io::{BufWriter, Read, Write};
+use std::io::{BufWriter, Write};
 use std::str::FromStr;
 
 #[derive(Clone, Debug)]
@@ -71,10 +71,10 @@ fn write_answer(data: &HaversineData, binary_filename: &str) {
     let output_file = File::create(binary_filename).unwrap();
     let mut writer = BufWriter::new(output_file);
 
-    let mut expected_sum: f64 = 0.0;
+    let mut expected_average: f64 = 0.0;
 
     let mut buf = [0u8; 8];
-    for point in &data.pairs {
+    for (count, point) in data.pairs.iter().enumerate() {
         let distance = distance::naive(point, earth::RADIUS);
         LittleEndian::write_f64(&mut buf, distance);
 
@@ -83,12 +83,14 @@ fn write_answer(data: &HaversineData, binary_filename: &str) {
             panic!("Failed to write everything")
         }
 
-        expected_sum += distance;
+        expected_average = ((1.0 - (1.0 / (count as f64 + 1.0))) * expected_average)
+            + (distance / (count as f64 + 1.0));
     }
 
-    println!("Expected sum: {}", expected_sum);
+    // sic!
+    println!("Expected sum: {}", expected_average);
 
-    LittleEndian::write_f64(&mut buf, expected_sum);
+    LittleEndian::write_f64(&mut buf, expected_average);
     let written = writer.write(&buf).unwrap();
     if written < buf.len() {
         panic!("Failed to write everything")
@@ -97,63 +99,37 @@ fn write_answer(data: &HaversineData, binary_filename: &str) {
     writer.flush().unwrap();
 }
 
-#[allow(dead_code)]
-fn read_answer(binary_filename: &str) -> (Vec<f64>, f64) {
-    let mut file = File::create(binary_filename).unwrap();
-    let file_size = file.metadata().unwrap().len();
-    if file_size % 8 != 0 {
-        panic!(
-            "Malformed input file of size {} is not a multiple of 8",
-            file_size
-        )
-    }
-    let num_floats = file_size / 8;
-    assert_ne!(num_floats, 0, "Empty file");
-    let num_bytes = num_floats - 1;
-
-    let mut data = Vec::with_capacity(num_bytes as usize);
-    let mut buf = [0u8, 8];
-
-    for _ in 0..num_floats {
-        let bytes_read = file.read(&mut buf).unwrap();
-        if bytes_read < 8 {
-            panic!("Not enough bytes read")
-        }
-
-        data.push(LittleEndian::read_f64(&buf));
-    }
-
-    let bytes_read = file.read(&mut buf).unwrap();
-    if bytes_read < 8 {
-        panic!("Not enough bytes read")
-    }
-
-    (data, LittleEndian::read_f64(&buf))
-}
-
-fn point_within(
-    point: &CoordinatePair,
-    cluster_centre_x: f64,
-    cluster_centre_y: f64,
-    cluster_radius: f64,
-) -> bool {
-    let mut distance = CoordinatePair {
-        x0: point.x0,
-        y0: point.y0,
-        x1: cluster_centre_x,
-        y1: cluster_centre_y,
-    };
-    if distance::naive(&distance, 1.0) > cluster_radius {
-        return false;
-    }
-
-    distance.x0 = point.x1;
-    distance.y0 = point.y1;
-
-    distance::naive(&distance, 1.0) <= cluster_radius
-}
-
 const CLUSTER_COUNT: usize = 20;
+
+/// Returns the smaller one then the larger one.
+fn sample_two<R, D>(range: D, rng: &mut R) -> (f64, f64)
+where
+    R: Rng,
+    D: Distribution<f64>,
+{
+    let x1 = range.sample(rng);
+    let x2 = range.sample(rng);
+
+    if x1 < x2 {
+        (x1, x2)
+    } else {
+        (x2, x1)
+    }
+}
+
+fn sample_point<R, D1, D2>(rng: &mut R, x_range: D1, y_range: D2) -> CoordinatePair
+where
+    R: Rng,
+    D1: Distribution<f64>,
+    D2: Distribution<f64>,
+{
+    CoordinatePair {
+        x0: x_range.sample(rng),
+        y0: y_range.sample(rng),
+        x1: x_range.sample(rng),
+        y1: y_range.sample(rng),
+    }
+}
 
 fn main() {
     let args = Args::parse();
@@ -170,13 +146,7 @@ fn main() {
     match args.algorithm {
         SelectionAlgorithm::Uniform => {
             for _ in 0usize..args.count {
-                let point = CoordinatePair {
-                    x0: x_range.sample(&mut rng),
-                    y0: y_range.sample(&mut rng),
-                    x1: x_range.sample(&mut rng),
-                    y1: y_range.sample(&mut rng),
-                };
-
+                let point = sample_point(&mut rng, x_range, y_range);
                 v.push(point);
             }
         }
@@ -189,29 +159,14 @@ fn main() {
             }
 
             for _ in 0..CLUSTER_COUNT {
-                // Uniformly sampling over lat/long pairs is dumb and biased towards the poles,
-                // but :shrug: we'll just bias it away a bit by hand.
-                let cluster_centre_x = x_range.sample(&mut rng);
-                // Bias a bit away from the pole by shrinking it
-                let cluster_centre_y = y_range.sample(&mut rng) * 0.9;
-                let cluster_radius = rng.gen_range(0.1..0.4);
+                let (min_x, max_x) = sample_two(x_range, &mut rng);
+                let (min_y, max_y) = sample_two(y_range, &mut rng);
+
+                let x_range = rand::distributions::Uniform::from(min_x..max_x);
+                let y_range = rand::distributions::Uniform::from(min_y..max_y);
 
                 for _ in 0..args.count / CLUSTER_COUNT {
-                    let mut point = CoordinatePair {
-                        x0: 0.0,
-                        y0: 0.0,
-                        x1: 0.0,
-                        // too big to ever be in the right place, so a suitable uninitialised value
-                        y1: 1000.0,
-                    };
-                    while !point_within(&point, cluster_centre_x, cluster_centre_y, cluster_radius)
-                    {
-                        point.x0 = x_range.sample(&mut rng);
-                        point.y0 = y_range.sample(&mut rng);
-                        point.x1 = x_range.sample(&mut rng);
-                        point.y1 = y_range.sample(&mut rng);
-                    }
-
+                    let point = sample_point(&mut rng, x_range, y_range);
                     v.push(point);
                 }
             }

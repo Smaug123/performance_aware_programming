@@ -1,10 +1,11 @@
 [workspace]
 members = [
     "sim_8086",
-    "wrapper",
+    "sim-wrapper",
     "generator",
     "haversine",
-    "json"
+    "json",
+    "haversine-app"
 ]
 
 [profile.release]

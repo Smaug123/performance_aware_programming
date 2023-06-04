@@ -1,0 +1,13 @@
+[package]
+name = "haversine-app"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+clap = { version = "4.3.1", features = [ "derive" ] }
+haversine = { path = "../haversine" }
+json = { path = "../json" }
+byteorder = "1.4.3"
+utf8-read = "0.4.0"

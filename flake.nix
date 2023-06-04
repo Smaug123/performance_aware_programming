@@ -23,7 +23,7 @@
     crate2nix,
     ...
   }: let
-    name = "wrapper";
+    name = "sim-wrapper";
   in
     utils.lib.eachDefaultSystem
     (

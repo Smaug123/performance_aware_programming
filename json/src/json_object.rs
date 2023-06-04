@@ -143,23 +143,26 @@ where
         }
     };
 
-    if current != '0' {
-        if ('1'..='9').contains(&current) {
-            integer_part = (current as u8 - b'0') as f64;
-            loop {
-                current = match iter.next() {
-                    None => return Ok((negative * integer_part, None)),
-                    Some(v) => v,
-                };
-                if current.is_ascii_digit() {
-                    integer_part = integer_part * 10.0 + ((current as u8 - b'0') as f64)
-                } else {
-                    break;
-                }
-            }
-        } else {
-            return Err(JsonNumberParseError::NonDigit(current));
+    if current == '0' {
+        current = match iter.next() {
+            Some(v) => v,
+            None => return Ok((negative * 0.0, None)),
         }
+    } else if ('1'..='9').contains(&current) {
+        integer_part = (current as u8 - b'0') as f64;
+        loop {
+            current = match iter.next() {
+                None => return Ok((negative * integer_part, None)),
+                Some(v) => v,
+            };
+            if current.is_ascii_digit() {
+                integer_part = integer_part * 10.0 + ((current as u8 - b'0') as f64)
+            } else {
+                break;
+            }
+        }
+    } else {
+        return Err(JsonNumberParseError::NonDigit(current));
     }
 
     // Parse fraction
@@ -347,6 +350,27 @@ where
 }
 
 impl JsonValue {
+    pub fn as_number(&self) -> f64 {
+        match self {
+            JsonValue::Number(f) => *f,
+            _ => panic!("Expected a number, got: {:?}", self),
+        }
+    }
+
+    pub fn as_object(&self) -> &HashMap<String, JsonValue> {
+        match self {
+            JsonValue::Object(o) => &o.values,
+            _ => panic!("Expected an object, got: {:?}", self),
+        }
+    }
+
+    pub fn as_array(&self) -> &Vec<JsonValue> {
+        match self {
+            JsonValue::Array(a) => a,
+            _ => panic!("Expected an array, got: {:?}", self),
+        }
+    }
+
     /// Consumes the JSON value and leaves the iterator sitting on the first non-whitespace
     /// character after the JSON value. Returns that non-whitespace character in the Ok case.
     pub(crate) fn parse_iter<I>(
@@ -860,5 +884,20 @@ mod test {
                 panic!("Unexpected error: {:?}", e)
             }
         }
+    }
+
+    #[test]
+    fn negative_number() {
+        let (parsed, remaining) = JsonValue::parse(&mut "-0.8".chars()).unwrap();
+        assert_eq!(remaining, None);
+        assert_eq!(parsed.as_number(), -0.8);
+    }
+
+    #[test]
+    fn haversine_example() {
+        let s = include_str!("example.json");
+        let parsed = parse_object(&s);
+        let o = parsed.values.get("pairs").unwrap().as_array();
+        assert_eq!(o.len(), 20);
     }
 }
