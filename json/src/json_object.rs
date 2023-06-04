@@ -185,8 +185,8 @@ where
     }
 
     let negative_exp = match iter.next() {
-        Some('-') => true,
-        Some('+') => false,
+        Some('-') => -1.0,
+        Some('+') => 1.0,
         c => return Err(JsonNumberParseError::NothingAfterE(c)),
     };
     let mut exponent = 0.0;
@@ -199,7 +199,8 @@ where
         if current.is_ascii_digit() {
             exponent = exponent * 10.0 + ((current as u8 - b'0') as f64);
         } else {
-            let to_ret = if negative_exp { todo!() } else { todo!() };
+            let pow = 10.0_f64.powf(negative_exp * exponent);
+            let to_ret = negative * integer_part * pow;
             return Ok((to_ret, Some(current)));
         }
     }
