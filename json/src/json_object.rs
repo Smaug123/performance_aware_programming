@@ -132,8 +132,8 @@ where
 {
     let mut current = current;
     let mut negative = 1.0;
-    let mut integer_part = 0f64;
-    let mut fractional_part = 0f64;
+    let mut result = 0f64;
+    let mut fraction = 0f64;
 
     if current == '-' {
         negative = -1.0;
@@ -149,14 +149,14 @@ where
             None => return Ok((negative * 0.0, None)),
         }
     } else if ('1'..='9').contains(&current) {
-        integer_part = (current as u8 - b'0') as f64;
+        result = (current as u8 - b'0') as f64;
         loop {
             current = match iter.next() {
-                None => return Ok((negative * integer_part, None)),
+                None => return Ok((negative * result, None)),
                 Some(v) => v,
             };
             if current.is_ascii_digit() {
-                integer_part = integer_part * 10.0 + ((current as u8 - b'0') as f64)
+                result = result * 10.0 + ((current as u8 - b'0') as f64)
             } else {
                 break;
             }
@@ -170,11 +170,11 @@ where
         let mut multiplier = 0.1;
         loop {
             current = match iter.next() {
-                None => return Ok((negative * (integer_part + fractional_part), None)),
+                None => return Ok((negative * (result + fraction), None)),
                 Some(v) => v,
             };
             if current.is_ascii_digit() {
-                fractional_part += multiplier * ((current as u8 - b'0') as f64);
+                fraction += multiplier * ((current as u8 - b'0') as f64);
                 multiplier *= 0.1;
             } else {
                 break;
@@ -184,7 +184,7 @@ where
 
     // Parse exponent
     if current != 'e' && current != 'E' {
-        return Ok((negative * (integer_part + fractional_part), Some(current)));
+        return Ok((negative * (result + fraction), Some(current)));
     }
 
     let negative_exp = match iter.next() {
@@ -198,7 +198,7 @@ where
         current = match iter.next() {
             None => {
                 let pow = 10.0_f64.powf(negative_exp * exponent);
-                let to_ret = negative * (integer_part + fractional_part) * pow;
+                let to_ret = negative * ((result + fraction) * pow);
                 return Ok((to_ret, None));
             }
             Some(v) => v,
@@ -207,7 +207,7 @@ where
             exponent = exponent * 10.0 + ((current as u8 - b'0') as f64);
         } else {
             let pow = 10.0_f64.powf(negative_exp * exponent);
-            let to_ret = negative * (integer_part + fractional_part) * pow;
+            let to_ret = negative * ((result + fraction) * pow);
             return Ok((to_ret, Some(current)));
         }
     }
@@ -891,6 +891,24 @@ mod test {
         let (parsed, remaining) = JsonValue::parse(&mut "-0.8".chars()).unwrap();
         assert_eq!(remaining, None);
         assert_eq!(parsed.as_number(), -0.8);
+    }
+
+    #[test]
+    fn borderline_example() {
+        let (parsed, remaining) = JsonValue::parse(&mut "-28.5175025263690110".chars()).unwrap();
+        assert_eq!(remaining, None);
+        let expected = -28.5175025263690110;
+        let actual = parsed.as_number();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn borderline_example_2() {
+        let (parsed, remaining) = JsonValue::parse(&mut "62.33736768026505".chars()).unwrap();
+        assert_eq!(remaining, None);
+        let expected = 62.33736768026505;
+        let actual = parsed.as_number();
+        assert_eq!(actual, expected);
     }
 
     #[test]

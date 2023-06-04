@@ -77,10 +77,16 @@ fn read_json(json_filename: &str) -> Vec<CoordinatePair> {
     }
 }
 
-fn haversine_sum(v: &[CoordinatePair]) -> f64 {
+fn haversine_sum(v: &[CoordinatePair], reference: &[f64]) -> f64 {
     let mut answer = 0.0_f64;
-    for pair in v {
-        answer += distance::naive(pair, earth::RADIUS);
+    for (count, pair) in v.iter().enumerate() {
+        let computed = distance::naive(pair, earth::RADIUS);
+        // reference: 8437.4017690204655
+        // computed : 8437.4017690204673
+        if computed != reference[count] {
+            println!("Different! At index {}, received pair: {:?}", count, pair)
+        }
+        answer += computed;
     }
     answer / (v.len() as f64)
 }
@@ -88,8 +94,8 @@ fn haversine_sum(v: &[CoordinatePair]) -> f64 {
 fn main() {
     let args = Args::parse();
     let input = read_json(&args.input_json);
-    let (_expected_values, expected_sum) = read_answer(&args.expected);
-    let actual_sum = haversine_sum(&input);
+    let (expected_values, expected_sum) = read_answer(&args.expected);
+    let actual_sum = haversine_sum(&input, &expected_values);
     println!("Pair count: {}", input.len());
     println!("Haversine sum: {}", actual_sum);
 

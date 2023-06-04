@@ -63,7 +63,28 @@ fn write_json(data: &HaversineData, json_filename: &str) {
     let output_file = File::create(json_filename).unwrap();
     let mut writer = BufWriter::new(output_file);
 
-    serde_json::to_writer(&mut writer, &data).unwrap();
+    writer.write_all(r#"{"pairs":["#.as_bytes()).unwrap();
+
+    let mut is_first = true;
+    for point in data.pairs.iter() {
+        if !is_first {
+            writer.write_all(&[b',']).unwrap();
+        }
+        writer.write_all(&[b'{']).unwrap();
+        writer
+            .write_all(
+                format!(
+                    r#""x0":{:16},"y0":{:.16},"x1":{:.16},"y1":{:.16}"#,
+                    point.x0, point.y0, point.x1, point.y1
+                )
+                .as_bytes(),
+            )
+            .unwrap();
+        writer.write_all(&[b'}']).unwrap();
+        is_first = false;
+    }
+
+    writer.write_all("]}".as_bytes()).unwrap();
     writer.flush().unwrap();
 }
 
