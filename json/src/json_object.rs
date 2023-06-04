@@ -347,6 +347,27 @@ where
 }
 
 impl JsonValue {
+    pub fn as_number(&self) -> f64 {
+        match self {
+            JsonValue::Number(f) => *f,
+            _ => panic!("Expected a number, got: {:?}", self),
+        }
+    }
+
+    pub fn as_object(&self) -> &HashMap<String, JsonValue> {
+        match self {
+            JsonValue::Object(o) => &o.values,
+            _ => panic!("Expected an object, got: {:?}", self),
+        }
+    }
+
+    pub fn as_array(&self) -> &Vec<JsonValue> {
+        match self {
+            JsonValue::Array(a) => a,
+            _ => panic!("Expected an array, got: {:?}", self),
+        }
+    }
+
     /// Consumes the JSON value and leaves the iterator sitting on the first non-whitespace
     /// character after the JSON value. Returns that non-whitespace character in the Ok case.
     pub(crate) fn parse_iter<I>(

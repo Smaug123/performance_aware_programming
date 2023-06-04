@@ -7,7 +7,7 @@ use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use std::fmt::{Display, Formatter};
 use std::fs::File;
-use std::io::{BufWriter, Read, Write};
+use std::io::{BufWriter, Write};
 use std::str::FromStr;
 
 #[derive(Clone, Debug)]
@@ -95,40 +95,6 @@ fn write_answer(data: &HaversineData, binary_filename: &str) {
     }
 
     writer.flush().unwrap();
-}
-
-#[allow(dead_code)]
-fn read_answer(binary_filename: &str) -> (Vec<f64>, f64) {
-    let mut file = File::create(binary_filename).unwrap();
-    let file_size = file.metadata().unwrap().len();
-    if file_size % 8 != 0 {
-        panic!(
-            "Malformed input file of size {} is not a multiple of 8",
-            file_size
-        )
-    }
-    let num_floats = file_size / 8;
-    assert_ne!(num_floats, 0, "Empty file");
-    let num_bytes = num_floats - 1;
-
-    let mut data = Vec::with_capacity(num_bytes as usize);
-    let mut buf = [0u8, 8];
-
-    for _ in 0..num_floats {
-        let bytes_read = file.read(&mut buf).unwrap();
-        if bytes_read < 8 {
-            panic!("Not enough bytes read")
-        }
-
-        data.push(LittleEndian::read_f64(&buf));
-    }
-
-    let bytes_read = file.read(&mut buf).unwrap();
-    if bytes_read < 8 {
-        panic!("Not enough bytes read")
-    }
-
-    (data, LittleEndian::read_f64(&buf))
 }
 
 fn point_within(
