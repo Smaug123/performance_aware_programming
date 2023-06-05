@@ -193,6 +193,31 @@ jobs:
       ]
     }
 
+  round_trip:
+    {
+      "name": "Round-trip generator and consumer",
+      "runs-on": "ubuntu-latest",
+      "steps": [
+        {
+          "uses": "actions/checkout@v3",
+          "name": "Checkout"
+        },
+        {
+          "name": "Install Nix",
+          "uses": "cachix/install-nix-action@v17",
+          "with": { "extra-nix-config": "access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}" }
+        },
+        {
+          "name": "Run generator",
+          "run": "nix develop . --command cargo run --release --bin generator --package generator -- 12345 100"
+        }
+        {
+          "name": "Run consumer",
+          "run": "nix develop . --command cargo run --release --bin haversine-app --package haversine-app -- data_100_flex.json data_100_haveranswer.f64"
+        }
+      ]
+    }
+
   all-required-checks-complete:
     {
       "needs": 

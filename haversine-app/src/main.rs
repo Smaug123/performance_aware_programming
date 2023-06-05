@@ -99,5 +99,10 @@ fn main() {
 
     println!("Validation:");
     println!("Reference sum: {}", expected_sum);
-    println!("Difference: {}", f64::abs(expected_sum - actual_sum));
+    let difference = f64::abs(expected_sum - actual_sum);
+    println!("Difference: {}", difference);
+
+    if difference != 0.0 {
+        std::process::exit(1)
+    }
 }
