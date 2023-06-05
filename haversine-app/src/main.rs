@@ -4,6 +4,7 @@ use haversine::{distance, earth};
 use json::json_object::JsonValue;
 use std::fs::File;
 use std::io::{BufReader, Read};
+use std::process::ExitCode;
 use utf8_read::Reader;
 
 #[derive(Parser, Debug)]
@@ -89,7 +90,7 @@ fn haversine_sum(v: &[CoordinatePair], reference: &[f64]) -> f64 {
     answer
 }
 
-fn main() {
+fn main() -> Result<(), ExitCode> {
     let args = Args::parse();
     let input = read_json(&args.input_json);
     let (expected_values, expected_sum) = read_answer(&args.expected);
@@ -103,6 +104,8 @@ fn main() {
     println!("Difference: {}", difference);
 
     if difference != 0.0 {
-        std::process::exit(1)
+        return Err(ExitCode::FAILURE);
     }
+
+    Ok(())
 }
