@@ -1,10 +1,10 @@
-use byteorder::{ByteOrder, LittleEndian};
 use clap::Parser;
 use haversine::haversine::CoordinatePair;
 use haversine::{distance, earth};
 use json::json_object::JsonValue;
 use std::fs::File;
 use std::io::{BufReader, Read};
+use std::process::ExitCode;
 use utf8_read::Reader;
 
 #[derive(Parser, Debug)]
@@ -41,7 +41,7 @@ fn read_answer(binary_filename: &str) -> (Vec<f64>, f64) {
             bytes_read += new_bytes;
         }
 
-        data.push(LittleEndian::read_f64(&buf));
+        data.push(f64::from_be_bytes(buf));
     }
 
     let bytes_read = file.read(&mut buf).unwrap();
@@ -49,7 +49,7 @@ fn read_answer(binary_filename: &str) -> (Vec<f64>, f64) {
         panic!("Not enough bytes read")
     }
 
-    (data, LittleEndian::read_f64(&buf))
+    (data, f64::from_be_bytes(buf))
 }
 
 fn read_json(json_filename: &str) -> Vec<CoordinatePair> {
@@ -77,23 +77,35 @@ fn read_json(json_filename: &str) -> Vec<CoordinatePair> {
     }
 }
 
-fn haversine_sum(v: &[CoordinatePair]) -> f64 {
+fn haversine_sum(v: &[CoordinatePair], reference: &[f64]) -> f64 {
     let mut answer = 0.0_f64;
-    for pair in v {
-        answer += distance::naive(pair, earth::RADIUS);
+    for (count, pair) in v.iter().enumerate() {
+        let computed = distance::naive(pair, earth::RADIUS);
+        if computed != reference[count] {
+            println!("Different! At index {}, received pair: {:?}, computed distance {computed}, expected {}", count, pair, reference[count])
+        }
+        answer =
+            ((1.0 - (1.0 / (count as f64 + 1.0))) * answer) + (computed / (count as f64 + 1.0));
     }
-    answer / (v.len() as f64)
+    answer
 }
 
-fn main() {
+fn main() -> Result<(), ExitCode> {
     let args = Args::parse();
     let input = read_json(&args.input_json);
-    let (_expected_values, expected_sum) = read_answer(&args.expected);
-    let actual_sum = haversine_sum(&input);
+    let (expected_values, expected_sum) = read_answer(&args.expected);
+    let actual_sum = haversine_sum(&input, &expected_values);
     println!("Pair count: {}", input.len());
     println!("Haversine sum: {}", actual_sum);
 
     println!("Validation:");
     println!("Reference sum: {}", expected_sum);
-    println!("Difference: {}", f64::abs(expected_sum - actual_sum));
+    let difference = f64::abs(expected_sum - actual_sum);
+    println!("Difference: {}", difference);
+
+    if difference != 0.0 {
+        return Err(ExitCode::FAILURE);
+    }
+
+    Ok(())
 }
