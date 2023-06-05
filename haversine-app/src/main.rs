@@ -1,4 +1,3 @@
-use byteorder::{ByteOrder, LittleEndian};
 use clap::Parser;
 use haversine::haversine::CoordinatePair;
 use haversine::{distance, earth};
@@ -41,7 +40,7 @@ fn read_answer(binary_filename: &str) -> (Vec<f64>, f64) {
             bytes_read += new_bytes;
         }
 
-        data.push(LittleEndian::read_f64(&buf));
+        data.push(f64::from_be_bytes(buf));
     }
 
     let bytes_read = file.read(&mut buf).unwrap();
@@ -49,7 +48,7 @@ fn read_answer(binary_filename: &str) -> (Vec<f64>, f64) {
         panic!("Not enough bytes read")
     }
 
-    (data, LittleEndian::read_f64(&buf))
+    (data, f64::from_be_bytes(buf))
 }
 
 fn read_json(json_filename: &str) -> Vec<CoordinatePair> {
@@ -81,14 +80,13 @@ fn haversine_sum(v: &[CoordinatePair], reference: &[f64]) -> f64 {
     let mut answer = 0.0_f64;
     for (count, pair) in v.iter().enumerate() {
         let computed = distance::naive(pair, earth::RADIUS);
-        // reference: 8437.4017690204655
-        // computed : 8437.4017690204673
         if computed != reference[count] {
-            println!("Different! At index {}, received pair: {:?}", count, pair)
+            println!("Different! At index {}, received pair: {:?}, computed distance {computed}, expected {}", count, pair, reference[count])
         }
-        answer += computed;
+        answer =
+            ((1.0 - (1.0 / (count as f64 + 1.0))) * answer) + (computed / (count as f64 + 1.0));
     }
-    answer / (v.len() as f64)
+    answer
 }
 
 fn main() {

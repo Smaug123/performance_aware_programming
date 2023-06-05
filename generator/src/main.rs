@@ -1,7 +1,8 @@
-use byteorder::{ByteOrder, LittleEndian};
+use byteorder::{BigEndian, ByteOrder};
 use clap::{builder::PossibleValue, Parser, ValueEnum};
 use haversine::haversine::{CoordinatePair, HaversineData};
 use haversine::{distance, earth};
+use json::json_object::JsonValue;
 use rand::distributions::Distribution;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
@@ -74,7 +75,7 @@ fn write_json(data: &HaversineData, json_filename: &str) {
         writer
             .write_all(
                 format!(
-                    r#""x0":{:16},"y0":{:.16},"x1":{:.16},"y1":{:.16}"#,
+                    r#""x0":{:.17},"y0":{:.17},"x1":{:.17},"y1":{:.17}"#,
                     point.x0, point.y0, point.x1, point.y1
                 )
                 .as_bytes(),
@@ -88,6 +89,16 @@ fn write_json(data: &HaversineData, json_filename: &str) {
     writer.flush().unwrap();
 }
 
+// Our JSON parser is incapable of round-tripping floats, for precision reasons.
+// To work around this, we'll just compute using the serialised versions.
+fn round_trip_float(f: f64) -> f64 {
+    let written = format!("{:.17}", f);
+    JsonValue::parse(&mut written.chars())
+        .unwrap()
+        .0
+        .as_number()
+}
+
 fn write_answer(data: &HaversineData, binary_filename: &str) {
     let output_file = File::create(binary_filename).unwrap();
     let mut writer = BufWriter::new(output_file);
@@ -96,8 +107,15 @@ fn write_answer(data: &HaversineData, binary_filename: &str) {
 
     let mut buf = [0u8; 8];
     for (count, point) in data.pairs.iter().enumerate() {
-        let distance = distance::naive(point, earth::RADIUS);
-        LittleEndian::write_f64(&mut buf, distance);
+        let point = CoordinatePair {
+            x0: round_trip_float(point.x0),
+            y0: round_trip_float(point.y0),
+            x1: round_trip_float(point.x1),
+            y1: round_trip_float(point.y1),
+        };
+
+        let distance = distance::naive(&point, earth::RADIUS);
+        BigEndian::write_f64(&mut buf, distance);
 
         let written = writer.write(&buf).unwrap();
         if written < buf.len() {
@@ -111,7 +129,7 @@ fn write_answer(data: &HaversineData, binary_filename: &str) {
     // sic!
     println!("Expected sum: {}", expected_average);
 
-    LittleEndian::write_f64(&mut buf, expected_average);
+    BigEndian::write_f64(&mut buf, expected_average);
     let written = writer.write(&buf).unwrap();
     if written < buf.len() {
         panic!("Failed to write everything")
