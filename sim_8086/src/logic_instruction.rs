@@ -65,6 +65,7 @@ impl Display for LogicInstruction {
 }
 
 impl LogicInstruction {
+    #[must_use]
     pub fn length(&self) -> u8 {
         match &self.target {
             LogicTarget::Register(_) => 2,
@@ -72,6 +73,7 @@ impl LogicInstruction {
         }
     }
 
+    #[must_use]
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut result = Vec::new();
         let byte = match self.op {
@@ -103,6 +105,7 @@ impl LogicInstruction {
         result
     }
 
+    #[must_use]
     pub fn clock_count(&self) -> (u32, String) {
         match (&self.op, &self.target) {
             (LogicInstructionType::Not, LogicTarget::Register(_)) => (3, "".to_owned()),

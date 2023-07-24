@@ -54,6 +54,7 @@ impl Display for Jump {
 }
 
 impl Jump {
+    #[must_use]
     pub fn clock_count(&self, is_success: bool) -> u32 {
         match self {
             Jump::Jle

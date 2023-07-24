@@ -11,6 +11,7 @@ pub enum GeneralRegister {
 }
 
 impl GeneralRegister {
+    #[must_use]
     pub const fn to_id(&self) -> u8 {
         match self {
             GeneralRegister::A => 0b00,
@@ -20,6 +21,7 @@ impl GeneralRegister {
         }
     }
 
+    #[must_use]
     pub const fn of_id(id: u8) -> GeneralRegister {
         match id {
             0 => GeneralRegister::A,
@@ -51,6 +53,7 @@ pub enum SpecialRegister {
 }
 
 impl SpecialRegister {
+    #[must_use]
     pub const fn to_id(&self) -> u8 {
         // These are all wide.
         4 + match self {
@@ -61,6 +64,7 @@ impl SpecialRegister {
         }
     }
 
+    #[must_use]
     pub const fn of_id(id: u8) -> SpecialRegister {
         match id {
             4 => SpecialRegister::StackPointer,
@@ -125,6 +129,7 @@ impl Display for SegmentRegister {
 }
 
 impl SegmentRegister {
+    #[must_use]
     pub const fn of_byte(b: u8) -> SegmentRegister {
         match b {
             0 => SegmentRegister::Extra,
@@ -152,6 +157,7 @@ impl Display for Register {
 }
 
 impl Register {
+    #[must_use]
     pub const fn of_id(id: u8, is_wide: bool) -> Register {
         if is_wide {
             if id >= 4 {
@@ -173,6 +179,7 @@ impl Register {
     }
 
     // Returns true if the result is wide.
+    #[must_use]
     pub const fn to_id(self: &Register) -> (u8, bool) {
         match self {
             Register::Special(s) => (s.to_id(), true),
@@ -184,6 +191,7 @@ impl Register {
         }
     }
 
+    #[must_use]
     pub const fn is_wide(self: &Register) -> bool {
         match self {
             Register::Special(_) => true,

@@ -4,6 +4,7 @@ fn square(x: f64) -> f64 {
     x * x
 }
 
+#[must_use]
 pub fn naive(point: &CoordinatePair, earth_radius: f64) -> f64 {
     let lat1 = point.y0;
     let lat2 = point.y1;

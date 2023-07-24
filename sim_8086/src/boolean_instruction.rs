@@ -73,6 +73,7 @@ impl Display for BooleanInstruction {
 }
 
 impl BooleanInstruction {
+    #[must_use]
     pub fn to_bytes(&self) -> Vec<u8> {
         match &self.dest {
             /*
@@ -154,6 +155,7 @@ impl BooleanInstruction {
         }
     }
 
+    #[must_use]
     pub fn length(&self) -> u8 {
         match &self.dest {
             BooleanInstructionDestination::ImmediateToAcc(data) => match data {
@@ -164,6 +166,7 @@ impl BooleanInstruction {
         }
     }
 
+    #[must_use]
     pub fn clock_count(&self) -> (u32, String) {
         match self.selection {
             BooleanInstructionType::Test => match self.dest {

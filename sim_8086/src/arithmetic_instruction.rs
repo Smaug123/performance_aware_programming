@@ -90,6 +90,7 @@ impl ArithmeticInstruction {
         (s as u8) * 8 + d * 2 + if is_wide { 1 } else { 0 }
     }
 
+    #[must_use]
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut result = Vec::<u8>::with_capacity(2);
         match &self.instruction {
@@ -187,6 +188,7 @@ impl ArithmeticInstruction {
         }
     }
 
+    #[must_use]
     pub fn clock_count(&self) -> (u32, String) {
         match self.op {
             ArithmeticOperation::Sub
@@ -299,6 +301,7 @@ impl Display for ArithmeticOperation {
 }
 
 impl ArithmeticOperation {
+    #[must_use]
     pub const fn of_byte(x: u8) -> ArithmeticOperation {
         match x {
             0 => ArithmeticOperation::Add,
