@@ -60,6 +60,7 @@ where
 }
 
 impl<'a> Instruction<&'a str> {
+    #[must_use]
     pub fn to_bytes(&self) -> Vec<u8> {
         match self {
             Instruction::Move(mov) => mov.to_bytes(),
@@ -104,6 +105,7 @@ impl<'a> Instruction<&'a str> {
 }
 
 impl Instruction<i8> {
+    #[must_use]
     pub fn to_bytes(&self) -> Vec<u8> {
         match self {
             Instruction::Move(mov) => mov.to_bytes(),

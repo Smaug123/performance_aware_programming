@@ -472,6 +472,7 @@ impl MoveInstruction {
         }
     }
 
+    #[must_use]
     pub fn clock_count(&self) -> (u32, String) {
         match self {
             MoveInstruction::RegRegMove(_) => (2, "".to_owned()),

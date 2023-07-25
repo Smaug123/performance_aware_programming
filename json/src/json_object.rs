@@ -350,6 +350,7 @@ where
 }
 
 impl JsonValue {
+    #[must_use]
     pub fn as_number(&self) -> f64 {
         match self {
             JsonValue::Number(f) => *f,
@@ -357,6 +358,7 @@ impl JsonValue {
         }
     }
 
+    #[must_use]
     pub fn as_object(&self) -> &HashMap<String, JsonValue> {
         match self {
             JsonValue::Object(o) => &o.values,
@@ -364,6 +366,7 @@ impl JsonValue {
         }
     }
 
+    #[must_use]
     pub fn as_array(&self) -> &Vec<JsonValue> {
         match self {
             JsonValue::Array(a) => a,

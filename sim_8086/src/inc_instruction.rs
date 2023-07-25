@@ -19,15 +19,18 @@ impl Display for IncInstruction {
 }
 
 impl IncInstruction {
+    #[must_use]
     pub fn to_bytes(&self) -> Vec<u8> {
         let (id, _is_wide) = self.target.to_id();
         vec![0b01000000 + id + if self.is_inc { 0 } else { 8 }]
     }
 
+    #[must_use]
     pub fn length(&self) -> u8 {
         1
     }
 
+    #[must_use]
     pub fn clock_count(&self) -> (u32, String) {
         if self.target.is_wide() {
             (2, "".to_owned())

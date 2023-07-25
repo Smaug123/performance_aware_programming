@@ -1,0 +1,23 @@
+pipeline:
+  build:
+    image: nixos/nix
+    commands:
+      - echo 'experimental-features = flakes nix-command' >> /etc/nix/nix.conf
+      # Lint
+      - nix develop --command cargo -- fmt --all -- --check
+      - nix develop --command cargo -- clippy -- -D warnings -W clippy::must_use_candidate
+      - nix develop .#ci --command alejandra -- --check .
+      - nix develop .#ci --command markdown-link-check README.md
+      # Test
+      - nix develop --command cargo test --verbose --release
+      - nix develop --command cargo test --verbose
+      # Run through Nix
+      - nix build
+      - nix run . -- computer_enhance/perfaware/part1/listing_0038_many_register_mov computer_enhance/perfaware/part1/listing_0038_many_register_mov.asm
+      - nix run . -- computer_enhance/perfaware/part1/listing_0055_challenge_rectangle computer_enhance/perfaware/part1/listing_0055_challenge_rectangle.asm
+      # Test round-tripping
+      - nix develop . --command cargo run --release --bin generator --package generator -- 12345 100
+      - nix develop . --command cargo run --release --bin haversine-app --package haversine-app -- data_100_flex.json data_100_haveranswer.f64
+
+when:
+  evaluate: '(CI_BUILD_EVENT == "push" && CI_COMMIT_BRANCH == CI_REPO_DEFAULT_BRANCH) || (CI_BUILD_EVENT == "pull_request")'

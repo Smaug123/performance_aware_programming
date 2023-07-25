@@ -52,6 +52,7 @@ pub struct Registers {
 }
 
 impl Registers {
+    #[must_use]
     pub fn diff(&self, old: &Registers) -> String {
         let mut result = Vec::new();
 
@@ -264,6 +265,7 @@ struct ResultFlags {
 
 impl Computer {
     #[allow(clippy::new_without_default)]
+    #[must_use]
     pub fn new() -> Computer {
         Computer {
             memory: [0; 65536],
@@ -291,6 +293,7 @@ impl Computer {
         self.flags.set(f, v)
     }
 
+    #[must_use]
     pub fn dump_flag_state(&self) -> String {
         format!("{}", self.flags)
     }
@@ -1307,6 +1310,7 @@ impl Computer {
         )
     }
 
+    #[must_use]
     pub fn get_program_counter(&self) -> u16 {
         self.program_counter
     }
@@ -1432,6 +1436,7 @@ impl Computer {
         }
     }
 
+    #[must_use]
     pub fn dump_register_state(&self) -> String {
         let mut result = "".to_owned();
         for r in [
