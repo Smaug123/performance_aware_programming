@@ -7,3 +7,4 @@ target/
 
 data_*_flex.json
 data_*_haveranswer.f64
+.direnv/
