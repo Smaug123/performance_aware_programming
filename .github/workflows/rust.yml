@@ -220,19 +220,22 @@ jobs:
 
   all-required-checks-complete:
     {
-      "needs": 
-    [
-      'nix-build',
-      'nix-run',
-      'build',
-      'build-release',
-      'alejandra',
-      'clippy',
-      'rust-fmt',
-      'linkcheck',
-    ],
+      "needs": [
+        'nix-build',
+        'nix-run',
+        'build',
+        'build-release',
+        'alejandra',
+        'clippy',
+        'rust-fmt',
+        'linkcheck',
+      ],
       "runs-on": "ubuntu-latest",
+      "if": "${{ always() }}",
       "steps": [
-        { "run": "echo \"All required checks complete.\"" }
+        {
+          "uses": "Smaug123/all-required-checks-complete-action@05b40a8c47ef0b175ea326e9abb09802cb67b44e",
+          "with": { "needs-context": "${{ toJson(needs) }}" }
+        }
       ]
     }

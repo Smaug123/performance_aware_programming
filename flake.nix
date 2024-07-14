@@ -16,7 +16,6 @@
   };
 
   outputs = {
-    self,
     nixpkgs,
     utils,
     rust-overlay,
@@ -72,7 +71,7 @@
 
         # Configuration for the non-Rust dependencies
         buildInputs = with pkgs; [openssl.dev];
-        nativeBuildInputs = with pkgs; [rustc cargo pkgconfig];
+        nativeBuildInputs = with pkgs; [rustc cargo pkg-config];
         buildEnvVars = {
           PKG_CONFIG_PATH = "${pkgs.openssl.dev}/lib/pkgconfig";
         };
