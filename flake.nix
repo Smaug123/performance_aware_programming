@@ -63,7 +63,7 @@
           };
 
         # Configuration for the non-Rust dependencies
-        buildInputs = with pkgs; [openssl.dev];
+        buildInputs = [pkgs.openssl.dev];
         nativeBuildInputs = with pkgs; [rustc cargo pkg-config];
         buildEnvVars = {
           PKG_CONFIG_PATH = "${pkgs.openssl.dev}/lib/pkgconfig";
@@ -86,7 +86,7 @@
           ci =
             pkgs.mkShell {
               inherit nativeBuildInputs;
-              buildInputs = [pkgs.nodePackages.markdown-link-check pkgs.alejandra] ++ buildInputs;
+              buildInputs = [pkgs.cargo-fmt pkgs.nodePackages.markdown-link-check pkgs.alejandra] ++ buildInputs;
               RUST_SRC_PATH = "${pkgs.rust.packages.stable.rustPlatform.rustLibSrc}";
             }
             // buildEnvVars;

@@ -4,7 +4,7 @@ steps:
     commands:
       - echo 'experimental-features = flakes nix-command' >> /etc/nix/nix.conf
       # Lint
-      - nix develop --command cargo -- fmt --all -- --check
+      - nix develop .#ci --command cargo -- fmt --all -- --check
       - nix develop --command cargo -- clippy -- -D warnings -W clippy::must_use_candidate
       - nix develop .#ci --command alejandra -- --check .
       - nix develop .#ci --command markdown-link-check README.md
