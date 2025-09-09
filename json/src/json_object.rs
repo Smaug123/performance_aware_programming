@@ -603,7 +603,7 @@ mod test {
             panic!("oh no")
         }
         if let JsonValue::Boolean(is_student) = obj.values.get("isStudent").unwrap() {
-            assert_eq!(*is_student, false)
+            assert!(!(*is_student))
         } else {
             panic!("oh no")
         }
@@ -821,7 +821,7 @@ mod test {
                 // Rust chose the float immediately above 1.23e-6; my computation
                 // chose the float immediately below.
                 let delta = expected - *actual;
-                assert_eq!(delta, 2.1175823681357508E-22);
+                assert_eq!(delta, 2.117_582_368_135_751E-22);
             }
             e => {
                 panic!("bad value: {:?}", e)
@@ -900,7 +900,7 @@ mod test {
     fn borderline_example() {
         let (parsed, remaining) = JsonValue::parse(&mut "-28.5175025263690110".chars()).unwrap();
         assert_eq!(remaining, None);
-        let expected = -28.5175025263690110;
+        let expected = -28.517_502_526_369_01;
         let actual = parsed.as_number();
         assert_eq!(actual, expected);
     }
@@ -920,7 +920,7 @@ mod test {
     #[test]
     fn haversine_example() {
         let s = include_str!("example.json");
-        let parsed = parse_object(&s);
+        let parsed = parse_object(s);
         let o = parsed.values.get("pairs").unwrap().as_array();
         assert_eq!(o.len(), 20);
     }

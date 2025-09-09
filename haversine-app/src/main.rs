@@ -18,7 +18,7 @@ struct Args {
 fn read_answer(binary_filename: &str) -> (Vec<f64>, f64) {
     let mut file = File::open(binary_filename).unwrap();
     let file_size = file.metadata().unwrap().len();
-    if file_size % 8 != 0 {
+    if !file_size.is_multiple_of(8) {
         panic!(
             "Malformed input file of size {} is not a multiple of 8",
             file_size
@@ -82,7 +82,10 @@ fn haversine_sum(v: &[CoordinatePair], reference: &[f64]) -> f64 {
     for (count, pair) in v.iter().enumerate() {
         let computed = distance::naive(pair, earth::RADIUS);
         if computed != reference[count] {
-            println!("Different! At index {}, received pair: {:?}, computed distance {computed}, expected {}", count, pair, reference[count])
+            println!(
+                "Different! At index {}, received pair: {:?}, computed distance {computed}, expected {}",
+                count, pair, reference[count]
+            )
         }
         answer =
             ((1.0 - (1.0 / (count as f64 + 1.0))) * answer) + (computed / (count as f64 + 1.0));

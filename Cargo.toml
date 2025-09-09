@@ -7,6 +7,14 @@ members = [
     "json",
     "haversine-app"
 ]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+
+[workspace.metadata.crane]
+name = "performance_aware_programming"
+version = "0.1.0"
 
 [profile.release]
 lto = true

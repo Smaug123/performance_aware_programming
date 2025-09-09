@@ -59,7 +59,7 @@ where
     }
 }
 
-impl<'a> Instruction<&'a str> {
+impl Instruction<&str> {
     #[must_use]
     pub fn to_bytes(&self) -> Vec<u8> {
         match self {

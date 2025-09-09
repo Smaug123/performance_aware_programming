@@ -94,17 +94,17 @@ mod test_program {
     {
         let disassembled = Program::of_bytes(input_bytecode.as_ref().iter().cloned());
 
-        let (remaining, pre_compiled) = assembly::program(&input_asm).unwrap();
+        let (remaining, pre_compiled) = assembly::program(input_asm).unwrap();
         assert_eq!(remaining.trim(), "");
 
-        let disassembled = disassembled.instructions.iter().filter(|i| match i {
-            Instruction::Trivia(_) => false,
-            _ => true,
-        });
-        let mut compiled = pre_compiled.instructions.iter().filter(|i| match i {
-            Instruction::Trivia(_) => false,
-            _ => true,
-        });
+        let disassembled = disassembled
+            .instructions
+            .iter()
+            .filter(|i| !matches!(i, Instruction::Trivia(_)));
+        let mut compiled = pre_compiled
+            .instructions
+            .iter()
+            .filter(|i| !matches!(i, Instruction::Trivia(_)));
 
         let mut is_different = false;
 
@@ -119,8 +119,7 @@ mod test_program {
                     {
                         println!(
                             "Different instruction. From disassembly: {dis} ({:?}). From our compilation: {compiled} ({:?}).",
-                            dis_bytes,
-                            compiled_bytes
+                            dis_bytes, compiled_bytes
                         );
                         is_different = true;
                     }
@@ -134,7 +133,7 @@ mod test_program {
             }
         }
 
-        while let Some(compiled) = compiled.next() {
+        for compiled in compiled {
             println!(
                 "Extra instruction from compilation: {compiled} ({:?})",
                 compiled.to_bytes()
@@ -143,7 +142,9 @@ mod test_program {
         }
 
         if is_different {
-            panic!("Disassembling input bytecode produced a different program from compiling the input asm.")
+            panic!(
+                "Disassembling input bytecode produced a different program from compiling the input asm."
+            )
         }
     }
 

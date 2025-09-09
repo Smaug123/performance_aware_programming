@@ -43,10 +43,10 @@ where
         .filter(|i| !matches!(i, Instruction::Trivia(_)));
 
     for i1 in without_trivia_1 {
-        if let Some(i2) = without_trivia_2.next() {
-            if i1 != i2 {
-                return false;
-            }
+        if let Some(i2) = without_trivia_2.next()
+            && i1 != i2
+        {
+            return false;
         }
     }
 
@@ -90,12 +90,18 @@ fn verify_consistency(pre_compiled: &Vec<u8>, asm: &str) {
     let disassembled = Program::of_bytes(pre_compiled.iter().cloned());
 
     if disassembled != compiled {
-        println!("Disassembled and compiled versions do not produce the same bytes. From disassembly:\n{}\nFrom assembling the input asm:\n{}", disassembled, compiled);
+        println!(
+            "Disassembled and compiled versions do not produce the same bytes. From disassembly:\n{}\nFrom assembling the input asm:\n{}",
+            disassembled, compiled
+        );
         std::process::exit(3)
     }
 
     if !program_equal_ignoring_labels(&disassembled, &compiled) {
-        println!("Program failed to disassemble back to the compiled version. Compiled:\n{}\nDisassembled again:\n{}", compiled, disassembled);
+        println!(
+            "Program failed to disassemble back to the compiled version. Compiled:\n{}\nDisassembled again:\n{}",
+            compiled, disassembled
+        );
         std::process::exit(4)
     }
 

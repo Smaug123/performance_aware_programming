@@ -1,4 +1,5 @@
 use nom::{
+    IResult,
     branch::alt,
     bytes::complete::{is_not, tag},
     character::complete::{
@@ -8,7 +9,6 @@ use nom::{
     error::FromExternalError,
     multi::{many0, many1},
     sequence::{delimited, preceded, separated_pair, terminated, tuple},
-    IResult,
 };
 
 use crate::boolean_instruction::{
@@ -62,12 +62,11 @@ enum OffsetTag {
     None,
 }
 
-fn bracketed<'a, F, O, E: nom::error::ParseError<&'a str>>(
-    inner: F,
-) -> impl FnMut(&'a str) -> IResult<&'a str, (OffsetTag, O), E>
+fn bracketed<'a, F, O, E>(inner: F) -> impl FnMut(&'a str) -> IResult<&'a str, (OffsetTag, O), E>
 where
     F: FnMut(&'a str) -> IResult<&'a str, O, E>,
     E: FromExternalError<&'a str, ()>,
+    E: nom::error::ParseError<&'a str>,
 {
     map_res(
         tuple((
@@ -203,10 +202,9 @@ fn literal_absolute_u8(input: &str) -> IResult<&str, u8> {
                         Err(())
                     }
                 })
-                .fold(Ok(0u8), |acc, new| match (acc, new) {
-                    (Ok(acc), Ok(new)) => Ok(acc * 16 + new),
+                .try_fold(0u8, |acc, new| match (acc, new) {
                     (_, Err(())) => Err(()),
-                    (Err(()), _) => Err(()),
+                    (acc, Ok(new)) => Ok(acc * 16 + new),
                 })
         }),
         map_res(digit1, str::parse::<u8>),
@@ -227,10 +225,9 @@ fn literal_absolute_u16(input: &str) -> IResult<&str, u16> {
                         Err(())
                     }
                 })
-                .fold(Ok(0u16), |acc, new| match (acc, new) {
-                    (Ok(acc), Ok(new)) => Ok(acc * 16 + new),
+                .try_fold(0u16, |acc, new| match (acc, new) {
                     (_, Err(())) => Err(()),
-                    (Err(()), _) => Err(()),
+                    (acc, Ok(new)) => Ok(acc * 16 + new),
                 })
         }),
         map_res(digit1, str::parse::<u16>),

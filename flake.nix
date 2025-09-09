@@ -2,110 +2,121 @@
   description = "Coursework for Performance-Aware Programming";
 
   inputs = {
+    self.submodules = true;
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
-    utils.url = "github:numtide/flake-utils";
-    rust-overlay.url = "github:oxalica/rust-overlay";
-    crate2nix = {
-      url = "github:kolloch/crate2nix";
-      flake = false;
+    flake-utils.url = "github:numtide/flake-utils";
+    rust-overlay = {
+      url = "github:oxalica/rust-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
     };
-    flake-compat = {
-      url = "github:edolstra/flake-compat";
-      flake = false;
-    };
+    crane.url = "github:ipetkov/crane";
   };
 
-  outputs = {
-    self,
-    nixpkgs,
-    utils,
-    rust-overlay,
-    crate2nix,
-    ...
-  }: let
-    name = "sim-wrapper";
-  in
-    utils.lib.eachDefaultSystem
-    (
-      system: let
-        # Imports
+  outputs = { self, nixpkgs, flake-utils, rust-overlay, crane }:
+    flake-utils.lib.eachDefaultSystem (system:
+      let
         pkgs = import nixpkgs {
           inherit system;
-          overlays = [
-            rust-overlay.overlays.default
-            (self: super: {
-              # Because rust-overlay bundles multiple rust packages into one
-              # derivation, specify that mega-bundle here, so that crate2nix
-              # will use them automatically.
-              rustc = self.rust-bin.nightly.latest.default;
-              cargo = self.rust-bin.nightly.latest.default;
-            })
+          overlays = [ (import rust-overlay) ];
+        };
+
+        rustToolchain = pkgs.rust-bin.nightly.latest.default;
+
+        craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
+
+        # Common build inputs for all derivations
+        commonArgs = {
+          version = "0.1.0"; # Set explicitly to avoid warnings
+          src = pkgs.lib.cleanSourceWith {
+            src = ./.;
+            name = "source";
+            filter = path: type: (builtins.match ".*json$" path != null || pkgs.lib.hasInfix "/computer_enhance" path || craneLib.filterCargoSources path type);
+          };
+          strictDeps = true;
+
+          buildInputs = [
+            pkgs.openssl
+          ];
+
+          nativeBuildInputs = [
+            pkgs.pkg-config
           ];
         };
-        inherit
-          (import "${crate2nix}/tools.nix" {inherit pkgs;})
-          generatedCargoNix
-          ;
 
-        # Create the cargo2nix project
-        project =
-          pkgs.callPackage
-          (generatedCargoNix {
-            inherit name;
-            src = ./.;
-          })
-          {
-            # Individual crate overrides go here
-            # Example: https://github.com/balsoft/simple-osd-daemons/blob/6f85144934c0c1382c7a4d3a2bbb80106776e270/flake.nix#L28-L50
-            defaultCrateOverrides =
-              pkgs.defaultCrateOverrides
-              // {
-                # The app crate itself is overriden here. Typically we
-                # configure non-Rust dependencies (see below) here.
-                ${name} = oldAttrs:
-                  {
-                    inherit buildInputs nativeBuildInputs;
-                  }
-                  // buildEnvVars;
-              };
+        # Build just the cargo dependencies
+        cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+
+        # Build the actual package
+        sim-wrapper = craneLib.buildPackage (commonArgs // {
+          inherit cargoArtifacts;
+        });
+      in
+      {
+        packages = {
+          default = sim-wrapper;
+          sim-wrapper = sim-wrapper;
+        };
+
+        apps = {
+          default = {
+            type = "app";
+            program = "${sim-wrapper}/bin/sim-wrapper";
+            meta = sim-wrapper.meta;
+          };
+          sim-wrapper = {
+            type = "app";
+            program = "${sim-wrapper}/bin/sim-wrapper";
+            meta = sim-wrapper.meta;
+          };
+        };
+
+        devShells = {
+          default = craneLib.devShell {
+            # Inherit the build inputs from commonArgs
+            buildInputs = commonArgs.buildInputs;
+            nativeBuildInputs = commonArgs.nativeBuildInputs;
+
+            # Additional dev tools
+            packages = [
+              rustToolchain
+              pkgs.rust-analyzer
+            ];
+
+            RUST_SRC_PATH = "${rustToolchain}/lib/rustlib/src/rust/library";
           };
 
-        # Configuration for the non-Rust dependencies
-        buildInputs = with pkgs; [openssl.dev];
-        nativeBuildInputs = with pkgs; [rustc cargo pkgconfig];
-        buildEnvVars = {
-          PKG_CONFIG_PATH = "${pkgs.openssl.dev}/lib/pkgconfig";
-        };
-      in rec {
-        packages.${name} = project.workspaceMembers.${name}.build;
+          ci = pkgs.mkShell {
+            buildInputs = commonArgs.buildInputs ++ [
+              pkgs.nodePackages.markdown-link-check
+              pkgs.nixpkgs-fmt
+              rustToolchain
+            ];
 
-        # `nix build`
-        defaultPackage = packages.${name};
+            nativeBuildInputs = commonArgs.nativeBuildInputs;
 
-        # `nix run`
-        apps.${name} = utils.lib.mkApp {
-          inherit name;
-          drv = packages.${name};
+            RUST_SRC_PATH = "${rustToolchain}/lib/rustlib/src/rust/library";
+          };
         };
-        defaultApp = apps.${name};
 
-        # `nix develop`
-        devShells = {
-          ci =
-            pkgs.mkShell {
-              inherit nativeBuildInputs;
-              buildInputs = [pkgs.nodePackages.markdown-link-check pkgs.alejandra] ++ buildInputs;
-              RUST_SRC_PATH = "${pkgs.rust.packages.stable.rustPlatform.rustLibSrc}";
-            }
-            // buildEnvVars;
-          default =
-            pkgs.mkShell
-            {
-              inherit buildInputs nativeBuildInputs;
-              RUST_SRC_PATH = "${pkgs.rust.packages.stable.rustPlatform.rustLibSrc}";
-            }
-            // buildEnvVars;
+        # Optional: add checks for CI
+        checks = {
+          inherit sim-wrapper;
+
+          # Run cargo fmt check
+          fmt = craneLib.cargoFmt {
+            inherit (commonArgs) src;
+          };
+
+          # Run clippy
+          clippy = craneLib.cargoClippy (commonArgs // {
+            inherit cargoArtifacts;
+            cargoClippyExtraArgs = "--all-targets -- --deny warnings";
+          });
+
+          # Run tests
+          tests = craneLib.cargoTest (commonArgs // {
+            inherit cargoArtifacts;
+          });
         };
-      }
-    );
+      });
 }

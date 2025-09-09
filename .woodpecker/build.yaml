@@ -1,17 +1,18 @@
 steps:
   build:
-    image: nixos/nix
+    image: nixos/nix:2.28.5
     commands:
       - echo 'experimental-features = flakes nix-command' >> /etc/nix/nix.conf
       # Lint
       - nix develop --command cargo -- fmt --all -- --check
       - nix develop --command cargo -- clippy -- -D warnings -W clippy::must_use_candidate
-      - nix develop .#ci --command alejandra -- --check .
+      - nix develop .#ci --command nixpkgs-fmt --check .
       - nix develop .#ci --command markdown-link-check README.md
       # Test
       - nix develop --command cargo test --verbose --release
       - nix develop --command cargo test --verbose
       # Run through Nix
+      - nix flake check
       - nix build
       - nix run . -- computer_enhance/perfaware/part1/listing_0038_many_register_mov computer_enhance/perfaware/part1/listing_0038_many_register_mov.asm
       - nix run . -- computer_enhance/perfaware/part1/listing_0055_challenge_rectangle computer_enhance/perfaware/part1/listing_0055_challenge_rectangle.asm

@@ -37,10 +37,10 @@ where
         }
         let mut labels = HashMap::new();
         for (counter, instruction) in self.instructions.as_ref().iter().enumerate() {
-            if let Instruction::Trivia(TriviaInstruction::Label(s)) = instruction {
-                if let Some(s) = labels.insert(s.trim(), counter) {
-                    panic!("same label twice: {}", s)
-                }
+            if let Instruction::Trivia(TriviaInstruction::Label(s)) = instruction
+                && let Some(s) = labels.insert(s.trim(), counter)
+            {
+                panic!("same label twice: {}", s)
             }
         }
 

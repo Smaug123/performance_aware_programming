@@ -1,5 +1,5 @@
 use byteorder::{BigEndian, ByteOrder};
-use clap::{builder::PossibleValue, Parser, ValueEnum};
+use clap::{Parser, ValueEnum, builder::PossibleValue};
 use haversine::haversine::{CoordinatePair, HaversineData};
 use haversine::{distance, earth};
 use json::json_object::JsonValue;
@@ -69,9 +69,9 @@ fn write_json(data: &HaversineData, json_filename: &str) {
     let mut is_first = true;
     for point in data.pairs.iter() {
         if !is_first {
-            writer.write_all(&[b',']).unwrap();
+            writer.write_all(b",").unwrap();
         }
-        writer.write_all(&[b'{']).unwrap();
+        writer.write_all(b"{").unwrap();
         writer
             .write_all(
                 format!(
@@ -81,7 +81,7 @@ fn write_json(data: &HaversineData, json_filename: &str) {
                 .as_bytes(),
             )
             .unwrap();
-        writer.write_all(&[b'}']).unwrap();
+        writer.write_all(b"}").unwrap();
         is_first = false;
     }
 
@@ -149,11 +149,7 @@ where
     let x1 = range.sample(rng);
     let x2 = range.sample(rng);
 
-    if x1 < x2 {
-        (x1, x2)
-    } else {
-        (x2, x1)
-    }
+    if x1 < x2 { (x1, x2) } else { (x2, x1) }
 }
 
 fn sample_point<R, D1, D2>(rng: &mut R, x_range: D1, y_range: D2) -> CoordinatePair

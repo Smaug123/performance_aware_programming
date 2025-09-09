@@ -111,12 +111,12 @@ impl EffectiveAddress {
         if mode == 3 {
             panic!("we don't handle this case, you need to do it manually to get a register")
         }
-        let source_dest = if rm % 2 == 0 {
+        let source_dest = if rm.is_multiple_of(2) {
             SourceDest::Source
         } else {
             SourceDest::Dest
         };
-        let base = if (rm / 2) % 2 == 0 {
+        let base = if (rm / 2).is_multiple_of(2) {
             Base::Bx
         } else {
             Base::Bp
